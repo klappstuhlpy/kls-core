@@ -27,6 +27,15 @@ pub enum Tool {
     Docker,
     /// `df` — filesystem usage.
     Df,
+    /// `du` — per-directory disk usage.
+    Du,
+    /// `systemctl` — systemd unit introspection and control.
+    ///
+    /// The unit name is an argument, so it stays data: a caller cannot turn it
+    /// into another command. Which *subcommands* an operator may reach (`status`
+    /// and `restart` versus `mask` or `daemon-reexec`) is a policy question for
+    /// the call site — this enum only decides which binary may run.
+    Systemctl,
     /// `sudo` elevation prefix.
     Sudo,
     /// `doas` elevation prefix.
@@ -42,6 +51,8 @@ impl Tool {
             Tool::Iptables => "iptables",
             Tool::Docker => "docker",
             Tool::Df => "df",
+            Tool::Du => "du",
+            Tool::Systemctl => "systemctl",
             Tool::Sudo => "sudo",
             Tool::Doas => "doas",
         }
@@ -56,6 +67,8 @@ impl Tool {
             "iptables" => Some(Tool::Iptables),
             "docker" => Some(Tool::Docker),
             "df" => Some(Tool::Df),
+            "du" => Some(Tool::Du),
+            "systemctl" => Some(Tool::Systemctl),
             "sudo" => Some(Tool::Sudo),
             "doas" => Some(Tool::Doas),
             _ => None,
@@ -272,6 +285,8 @@ mod tests {
             Tool::Iptables,
             Tool::Docker,
             Tool::Df,
+            Tool::Du,
+            Tool::Systemctl,
             Tool::Sudo,
             Tool::Doas,
         ] {
