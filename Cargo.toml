@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/percy-client", "crates/kls-ui", "crates/kls-web-core", "crates/kls-agent"]
+
+# kls-core — the versioned foundation shared by the klappstuhl.me main site, the
+# Percy dashboard, and Vantage (the admin control plane). Consumed by all three
+# as tag-pinned git dependencies. Four independent crates:
+#   • percy-client  — typed client for Percy's internal HTTP API
+#   • kls-ui        — the design system (base.css/JS embedded, served at /kls/*)
+#   • kls-web-core  — the web kernel: crypto, async SQLite, migrations, the
+#                     signed auth-cookie wire format, and flash messages
+#   • kls-agent     — typed, allowlisted boundary for privileged host operations
+#
+# Public because Vantage is AGPL-v3 and links kls-web-core and kls-agent
+# statically: anyone receiving a Vantage binary is entitled to the source of the
+# combined work.

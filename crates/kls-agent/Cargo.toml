@@ -1,0 +1,11 @@
+[package]
+name = "kls-agent"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Typed, allowlisted boundary for privileged host operations (firewall, docker, proxy, ...) used by the klappstuhl.me admin shell."
+
+[dependencies]
+# Only the process/runtime bits are needed here; feature-unified with the root
+# crate's `tokio = { features = ["full"] }` in the workspace.
+tokio = { version = "1", features = ["process", "io-util", "time", "rt"] }
