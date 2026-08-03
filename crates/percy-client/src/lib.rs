@@ -1055,45 +1055,26 @@ impl PercyClient {
     // comic *feed* subscriptions above.
 
     #[allow(clippy::too_many_arguments)]
-    fn list_comics_request(
-        &self,
-        brand: Option<&str>,
-        series: Option<&str>,
-        creator: Option<&str>,
-        character: Option<&str>,
-        since: Option<&str>,
-        until: Option<&str>,
-        search: Option<&str>,
-        page: Option<i64>,
-        per_page: Option<i64>,
-    ) -> RequestBuilder {
+    fn list_comics_request(&self, query: &ComicBrowseQuery<'_>) -> RequestBuilder {
         let mut req = self.client.get(self.url("/api/v1/comics"));
-        if let Some(b) = brand {
-            req = req.query(&[("brand", b)]);
+        for (key, value) in [
+            ("brand", query.brand),
+            ("series", query.series),
+            ("creator", query.creator),
+            ("character", query.character),
+            ("since", query.since),
+            ("until", query.until),
+            ("search", query.search),
+        ] {
+            if let Some(value) = value {
+                req = req.query(&[(key, value)]);
+            }
         }
-        if let Some(s) = series {
-            req = req.query(&[("series", s)]);
+        if let Some(page) = query.page {
+            req = req.query(&[("page", page.to_string())]);
         }
-        if let Some(c) = creator {
-            req = req.query(&[("creator", c)]);
-        }
-        if let Some(c) = character {
-            req = req.query(&[("character", c)]);
-        }
-        if let Some(s) = since {
-            req = req.query(&[("since", s)]);
-        }
-        if let Some(u) = until {
-            req = req.query(&[("until", u)]);
-        }
-        if let Some(s) = search {
-            req = req.query(&[("search", s)]);
-        }
-        if let Some(p) = page {
-            req = req.query(&[("page", p.to_string())]);
-        }
-        if let Some(p) = per_page {
-            req = req.query(&[("per_page", p.to_string())]);
+        if let Some(per_page) = query.per_page {
+            req = req.query(&[("per_page", per_page.to_string())]);
         }
         req
     }
@@ -1101,23 +1082,12 @@ impl PercyClient {
     /// List comic releases, filtered and paginated.
     ///
     /// Every filter is optional. `page` is 1-based; Percy caps `per_page` at 100.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn list_comics(
-        &self,
-        brand: Option<&str>,
-        series: Option<&str>,
-        creator: Option<&str>,
-        character: Option<&str>,
-        since: Option<&str>,
-        until: Option<&str>,
-        search: Option<&str>,
-        page: Option<i64>,
-        per_page: Option<i64>,
-    ) -> Result<ComicBrowsePage, PercyError> {
-        self.send_into(
-            self.list_comics_request(brand, series, creator, character, since, until, search, page, per_page),
-        )
-        .await
+    ///
+    /// Takes a [`ComicBrowseQuery`] rather than a run of positional arguments: seven of the
+    /// filters are `Option<&str>`, so a positional signature lets a caller swap `creator` and
+    /// `character` and still compile, silently querying the wrong thing.
+    pub async fn list_comics(&self, query: &ComicBrowseQuery<'_>) -> Result<ComicBrowsePage, PercyError> {
+        self.send_into(self.list_comics_request(query)).await
     }
 
     /// Fetch one comic release by brand and slug, with its series neighbours.
@@ -1866,17 +1836,12 @@ mod tests {
 
     #[test]
     fn list_comics_omits_unset_filters() {
-        let pairs = query_pairs(client().list_comics_request(
-            Some("marvel"),
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some("spider"),
-            Some(2),
-            None,
-        ));
+        let pairs = query_pairs(client().list_comics_request(&ComicBrowseQuery {
+            brand: Some("marvel"),
+            search: Some("spider"),
+            page: Some(2),
+            ..Default::default()
+        }));
         assert!(pairs.contains(&("brand".to_string(), "marvel".to_string())));
         assert!(pairs.contains(&("search".to_string(), "spider".to_string())));
         assert!(pairs.contains(&("page".to_string(), "2".to_string())));
@@ -1889,8 +1854,19 @@ mod tests {
     }
 
     #[test]
+    fn list_comics_keeps_creator_and_character_distinct() {
+        let pairs = query_pairs(client().list_comics_request(&ComicBrowseQuery {
+            creator: Some("jane-doe"),
+            character: Some("spider-man"),
+            ..Default::default()
+        }));
+        assert!(pairs.contains(&("creator".to_string(), "jane-doe".to_string())));
+        assert!(pairs.contains(&("character".to_string(), "spider-man".to_string())));
+    }
+
+    #[test]
     fn list_comics_with_no_filters_has_no_query() {
-        let pairs = query_pairs(client().list_comics_request(None, None, None, None, None, None, None, None, None));
+        let pairs = query_pairs(client().list_comics_request(&ComicBrowseQuery::default()));
         assert!(pairs.is_empty());
     }
 

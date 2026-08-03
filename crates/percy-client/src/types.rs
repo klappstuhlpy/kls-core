@@ -2003,6 +2003,35 @@ pub struct ComicBrowseFilters {
     pub search: Option<String>,
 }
 
+/// Every filter `GET /comics` accepts, as one borrowed struct.
+///
+/// Seven of these are `Option<&str>`, so passing them positionally lets a caller swap
+/// `creator` and `character` and still compile. Build it from `Default` and set only what
+/// you mean:
+///
+/// ```ignore
+/// let page = percy
+///     .list_comics(&ComicBrowseQuery { brand: Some("MARVEL"), page: Some(2), ..Default::default() })
+///     .await?;
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct ComicBrowseQuery<'a> {
+    pub brand: Option<&'a str>,
+    pub series: Option<&'a str>,
+    pub creator: Option<&'a str>,
+    pub character: Option<&'a str>,
+    /// ISO date (`YYYY-MM-DD`); releases on or after it.
+    pub since: Option<&'a str>,
+    /// ISO date; releases on or before it.
+    pub until: Option<&'a str>,
+    /// Substring match on the title.
+    pub search: Option<&'a str>,
+    /// 1-based.
+    pub page: Option<i64>,
+    /// Percy caps this at 100.
+    pub per_page: Option<i64>,
+}
+
 /// The `GET /comics` response: one page of filtered releases.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ComicBrowsePage {
