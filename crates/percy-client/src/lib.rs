@@ -1578,6 +1578,132 @@ impl PercyClient {
         )
         .await
     }
+
+    // -- Watchlist -----------------------------------------------------------
+    //
+    // Not guild-scoped: a watch order is global content and progress is per Discord
+    // user. The catalogue endpoints need no session at all, which is what lets the
+    // watch-order page render server-side for logged-out visitors.
+
+    /// List every published universe with its title count and total runtime.
+    pub async fn list_watch_universes(&self) -> Result<WatchUniversesResponse, PercyError> {
+        self.send_into(self.client.get(self.url("/api/v1/watchlist/universes")))
+            .await
+    }
+
+    /// Fetch one universe's whole page: identity, paths, eras and every title.
+    ///
+    /// `path` selects which curated route's importance tags are joined in (Percy falls
+    /// back to the universe's default); an unknown one is a `404` rather than a silent
+    /// fallback. `region` picks the streaming providers; `sort` is `story` or `release`.
+    pub async fn get_watch_universe(
+        &self,
+        slug: &str,
+        path: Option<&str>,
+        region: &str,
+        sort: &str,
+    ) -> Result<WatchUniversePage, PercyError> {
+        let mut query = vec![("region", region.to_string()), ("sort", sort.to_string())];
+        if let Some(path) = path {
+            query.push(("path", path.to_string()));
+        }
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/watchlist/universes/{slug}")))
+                .query(&query),
+        )
+        .await
+    }
+
+    /// Totals for one path: counts, importance breakdown, runtime and hours.
+    pub async fn get_watch_universe_stats(&self, slug: &str, path: Option<&str>) -> Result<WatchStats, PercyError> {
+        let query: Vec<(&str, String)> = path.map(|p| vec![("path", p.to_string())]).unwrap_or_default();
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/watchlist/universes/{slug}/stats")))
+                .query(&query),
+        )
+        .await
+    }
+
+    /// One title in detail, with its credits parent and its neighbours in `sort` order.
+    pub async fn get_watch_title(
+        &self,
+        universe: &str,
+        slug: &str,
+        region: &str,
+        sort: &str,
+    ) -> Result<WatchTitleDetail, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/watchlist/titles/{universe}/{slug}")))
+                .query(&[("region", region), ("sort", sort)]),
+        )
+        .await
+    }
+
+    /// Fetch a user's watch progress, optionally scoped to one universe.
+    pub async fn get_watch_progress(
+        &self,
+        discord_id: u64,
+        universe: Option<&str>,
+    ) -> Result<WatchProgressResponse, PercyError> {
+        let query: Vec<(&str, String)> = universe.map(|u| vec![("universe", u.to_string())]).unwrap_or_default();
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/watchlist/users/{discord_id}/progress")))
+                .query(&query),
+        )
+        .await
+    }
+
+    /// Merge a batch of progress entries and return the merged set.
+    ///
+    /// `body` is `{ "entries": [{ "title_id": i64, "status": "watched"|"skipped",
+    /// "updated_at": ISO-8601 }] }`. Percy resolves conflicts per title by `updated_at`,
+    /// so a stale tab cannot overwrite a newer change made on another device.
+    pub async fn put_watch_progress(
+        &self,
+        discord_id: u64,
+        body: &serde_json::Value,
+    ) -> Result<WatchProgressResponse, PercyError> {
+        self.send_into(
+            self.client
+                .put(self.url(&format!("/api/v1/watchlist/users/{discord_id}/progress")))
+                .json(body),
+        )
+        .await
+    }
+
+    /// Reset a user's progress, optionally for one universe only.
+    pub async fn delete_watch_progress(&self, discord_id: u64, universe: Option<&str>) -> Result<(), PercyError> {
+        let query: Vec<(&str, String)> = universe.map(|u| vec![("universe", u.to_string())]).unwrap_or_default();
+        self.send_unit(
+            self.client
+                .delete(self.url(&format!("/api/v1/watchlist/users/{discord_id}/progress")))
+                .query(&query),
+        )
+        .await
+    }
+
+    /// Fetch a user's watchlist preferences (Percy returns defaults if they saved none).
+    pub async fn get_watch_prefs(&self, discord_id: u64) -> Result<WatchPrefs, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/watchlist/users/{discord_id}/prefs"))),
+        )
+        .await
+    }
+
+    /// Update the given preference fields, leaving the rest untouched.
+    pub async fn patch_watch_prefs(&self, discord_id: u64, body: &serde_json::Value) -> Result<WatchPrefs, PercyError> {
+        self.send_into(
+            self.client
+                .patch(self.url(&format!("/api/v1/watchlist/users/{discord_id}/prefs")))
+                .json(body),
+        )
+        .await
+    }
 }
 
 // -- Error type --------------------------------------------------------------

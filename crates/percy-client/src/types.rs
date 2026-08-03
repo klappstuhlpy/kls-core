@@ -1650,3 +1650,266 @@ pub struct TemplatesResponse {
     #[serde(default)]
     pub own: Vec<TemplateEntry>,
 }
+
+// -- Watchlist types ---------------------------------------------------------
+
+/// A universe card on the watchlist index: identity plus its two aggregates.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchUniverseSummary {
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub short_name: String,
+    #[serde(default)]
+    pub tagline: Option<String>,
+    /// Percy renders the stored accent integer as `#RRGGBB`, ready for CSS.
+    #[serde(default)]
+    pub accent: String,
+    #[serde(default)]
+    pub logo_url: Option<String>,
+    #[serde(default)]
+    pub backdrop_url: Option<String>,
+    #[serde(default)]
+    pub sort_order: i64,
+    #[serde(default)]
+    pub published: bool,
+    #[serde(default)]
+    pub synced_at: Option<String>,
+    #[serde(default)]
+    pub title_count: i64,
+    #[serde(default)]
+    pub total_runtime: i64,
+}
+
+/// The `GET /watchlist/universes` response.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchUniversesResponse {
+    #[serde(default)]
+    pub universes: Vec<WatchUniverseSummary>,
+}
+
+/// Universe identity as carried inside a page or title-detail payload.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchUniverse {
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub short_name: String,
+    #[serde(default)]
+    pub tagline: Option<String>,
+    #[serde(default)]
+    pub accent: String,
+    #[serde(default)]
+    pub logo_url: Option<String>,
+    #[serde(default)]
+    pub backdrop_url: Option<String>,
+    #[serde(default)]
+    pub published: bool,
+    #[serde(default)]
+    pub synced_at: Option<String>,
+}
+
+/// One curated route through a universe (e.g. "complete", "essentials").
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchPath {
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub is_default: bool,
+    #[serde(default)]
+    pub sort_order: i64,
+}
+
+/// An era heading, derived by Percy from the titles themselves.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchEra {
+    #[serde(default)]
+    pub key: String,
+    #[serde(default)]
+    pub order: i64,
+    #[serde(default)]
+    pub title_count: i64,
+}
+
+/// Where a title can be streamed, rented or bought in the requested region.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchProvider {
+    #[serde(default)]
+    pub provider_id: i64,
+    #[serde(default)]
+    pub provider_name: String,
+    #[serde(default)]
+    pub logo_path: Option<String>,
+    /// `flatrate`, `rent` or `buy`.
+    #[serde(default)]
+    pub offer: String,
+}
+
+/// One entry in a watch order: TMDB metadata plus this project's curation.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchTitle {
+    #[serde(default)]
+    pub id: i64,
+    #[serde(default)]
+    pub universe: String,
+    #[serde(default)]
+    pub tmdb_type: String,
+    #[serde(default)]
+    pub tmdb_id: i64,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub title: String,
+    /// `movie`, `tv` or `special`.
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub runtime: i64,
+    #[serde(default)]
+    pub episodes: Option<i64>,
+    #[serde(default)]
+    pub release_date: Option<String>,
+    #[serde(default)]
+    pub poster_path: Option<String>,
+    #[serde(default)]
+    pub backdrop_path: Option<String>,
+    #[serde(default)]
+    pub overview: Option<String>,
+    #[serde(default)]
+    pub tmdb_rating: Option<f64>,
+    #[serde(default)]
+    pub tmdb_votes: Option<i64>,
+    #[serde(default)]
+    pub era: Option<String>,
+    #[serde(default)]
+    pub era_order: i64,
+    #[serde(default)]
+    pub story_order: i64,
+    #[serde(default)]
+    pub release_order: i64,
+    #[serde(default)]
+    pub milestone: bool,
+    /// A short in-title action, e.g. "STOP before the credits".
+    #[serde(default)]
+    pub instruction: Option<String>,
+    #[serde(default)]
+    pub context: Option<String>,
+    #[serde(default)]
+    pub spoiler: Option<String>,
+    /// The title whose credits scene this entry really belongs to, if any.
+    #[serde(default)]
+    pub credits_of: Option<i64>,
+    #[serde(default)]
+    pub sub_universe: Option<String>,
+    /// `essential`, `recommended`, `optional` -- or absent when the selected path
+    /// carries no importance row for this title.
+    #[serde(default)]
+    pub importance: Option<String>,
+    #[serde(default)]
+    pub providers: Vec<WatchProvider>,
+}
+
+/// The `GET /watchlist/universes/{slug}` response: everything one page needs.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchUniversePage {
+    #[serde(default)]
+    pub universe: WatchUniverse,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub region: String,
+    #[serde(default)]
+    pub sort: String,
+    #[serde(default)]
+    pub paths: Vec<WatchPath>,
+    #[serde(default)]
+    pub eras: Vec<WatchEra>,
+    #[serde(default)]
+    pub titles: Vec<WatchTitle>,
+}
+
+/// Totals for one path, used by the index cards and the SEO copy.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchStats {
+    #[serde(default)]
+    pub universe: String,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub total: i64,
+    #[serde(default)]
+    pub movies: i64,
+    #[serde(default)]
+    pub shows: i64,
+    #[serde(default)]
+    pub runtime: i64,
+    #[serde(default)]
+    pub hours: f64,
+    #[serde(default)]
+    pub essential: i64,
+    #[serde(default)]
+    pub recommended: i64,
+    #[serde(default)]
+    pub optional: i64,
+}
+
+/// The `GET /watchlist/titles/{universe}/{slug}` response.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchTitleDetail {
+    #[serde(default)]
+    pub title: WatchTitle,
+    #[serde(default)]
+    pub credits_of: Option<WatchTitle>,
+    #[serde(default)]
+    pub previous: Option<WatchTitle>,
+    #[serde(default)]
+    pub next: Option<WatchTitle>,
+    #[serde(default)]
+    pub universe: WatchUniverse,
+}
+
+/// One title's stored watch state.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchProgressEntry {
+    /// `watched` or `skipped`.
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub updated_at: String,
+}
+
+/// A user's watch progress, keyed by title id (as a string, since JSON object keys are).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchProgressResponse {
+    #[serde(default)]
+    pub entries: HashMap<String, WatchProgressEntry>,
+}
+
+/// A user's watchlist preferences. Percy returns defaults for a user who has never saved any.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchPrefs {
+    #[serde(default)]
+    pub region: String,
+    #[serde(default)]
+    pub path_slug: Option<String>,
+    #[serde(default)]
+    pub sort_mode: String,
+    #[serde(default)]
+    pub show_spoiler: bool,
+    #[serde(default)]
+    pub with_credits: bool,
+    #[serde(default)]
+    pub hide_sub: bool,
+    #[serde(default)]
+    pub weekly_hours: Option<serde_json::Value>,
+    #[serde(default)]
+    pub target_date: Option<String>,
+}
