@@ -1913,3 +1913,187 @@ pub struct WatchPrefs {
     #[serde(default)]
     pub target_date: Option<String>,
 }
+
+// -- Comic catalogue types -----------------------------------------------------
+//
+// The public comic-release catalogue behind percy-dashboard's comic pages --
+// distinct from `ComicFeedEntry`/`ComicsResponse` above, which are the
+// guild-scoped feed *subscriptions* a server can push new releases to.
+
+/// One credited contributor on a release (writer, artist, ...).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ComicCredit {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub role: String,
+}
+
+/// One character appearing in a release.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ComicCharacter {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+}
+
+/// One comic release, as returned by every catalogue endpoint.
+///
+/// Browse and series listings return `credits`/`characters` as empty vecs rather
+/// than omitting them, so this one type covers every case they appear in.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ComicRelease {
+    #[serde(default)]
+    pub id: i64,
+    #[serde(default)]
+    pub brand: String,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub series_slug: Option<String>,
+    #[serde(default)]
+    pub series_name: Option<String>,
+    #[serde(default)]
+    pub issue_number: Option<String>,
+    #[serde(default)]
+    pub release_date: Option<String>,
+    #[serde(default)]
+    pub cover_url: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub price: Option<f64>,
+    #[serde(default)]
+    pub page_count: Option<i64>,
+    #[serde(default)]
+    pub format: Option<String>,
+    #[serde(default)]
+    pub publisher: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub first_seen: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub credits: Vec<ComicCredit>,
+    #[serde(default)]
+    pub characters: Vec<ComicCharacter>,
+}
+
+/// Echoes exactly which filters `GET /comics` applied.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ComicBrowseFilters {
+    #[serde(default)]
+    pub brand: Option<String>,
+    #[serde(default)]
+    pub series: Option<String>,
+    #[serde(default)]
+    pub creator: Option<String>,
+    #[serde(default)]
+    pub character: Option<String>,
+    #[serde(default)]
+    pub since: Option<String>,
+    #[serde(default)]
+    pub until: Option<String>,
+    #[serde(default)]
+    pub search: Option<String>,
+}
+
+/// The `GET /comics` response: one page of filtered releases.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ComicBrowsePage {
+    #[serde(default)]
+    pub items: Vec<ComicRelease>,
+    #[serde(default)]
+    pub page: i64,
+    #[serde(default)]
+    pub per_page: i64,
+    #[serde(default)]
+    pub total: i64,
+    #[serde(default)]
+    pub total_pages: i64,
+    #[serde(default)]
+    pub filters: ComicBrowseFilters,
+}
+
+/// The series-neighbours object nested under `series` in a comic detail response.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ComicDetailSeries {
+    #[serde(default)]
+    pub previous: Option<ComicRelease>,
+    #[serde(default)]
+    pub next: Option<ComicRelease>,
+    #[serde(default)]
+    pub more_from_series: Vec<ComicRelease>,
+}
+
+/// The `GET /comics/{brand}/{slug}` response: the release's own fields flattened
+/// in via [`ComicRelease`], plus its series neighbours nested under `series`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ComicDetail {
+    #[serde(flatten)]
+    pub release: ComicRelease,
+    #[serde(default)]
+    pub series: ComicDetailSeries,
+}
+
+/// One series card in the `GET /comics/series` index.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ComicSeriesSummary {
+    #[serde(default)]
+    pub series_slug: String,
+    #[serde(default)]
+    pub series_name: String,
+    #[serde(default)]
+    pub brand: String,
+    #[serde(default)]
+    pub issue_count: i64,
+    #[serde(default)]
+    pub latest: Option<String>,
+}
+
+/// The `GET /comics/series` response.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ComicSeriesList {
+    #[serde(default)]
+    pub series: Vec<ComicSeriesSummary>,
+}
+
+/// The `GET /comics/series/{slug}` response: one series and every issue in it.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ComicSeriesPage {
+    #[serde(default)]
+    pub series_slug: String,
+    #[serde(default)]
+    pub series_name: String,
+    #[serde(default)]
+    pub brand: String,
+    #[serde(default)]
+    pub publisher: Option<String>,
+    #[serde(default)]
+    pub issue_count: i64,
+    #[serde(default)]
+    pub issues: Vec<ComicRelease>,
+}
+
+/// One name in a `GET /comics/names` response, with its appearance count.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ComicNameEntry {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub appearances: i64,
+}
+
+/// The `GET /comics/names` response.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ComicNamesResponse {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub names: Vec<ComicNameEntry>,
+}

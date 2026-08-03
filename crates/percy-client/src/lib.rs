@@ -1048,6 +1048,135 @@ impl PercyClient {
         .await
     }
 
+    // -- Comic catalogue (public) ---------------------------------------------
+    //
+    // Not guild-scoped: this is the global comic-release catalogue behind
+    // percy-dashboard's public comic pages, distinct from the guild-scoped
+    // comic *feed* subscriptions above.
+
+    #[allow(clippy::too_many_arguments)]
+    fn list_comics_request(
+        &self,
+        brand: Option<&str>,
+        series: Option<&str>,
+        creator: Option<&str>,
+        character: Option<&str>,
+        since: Option<&str>,
+        until: Option<&str>,
+        search: Option<&str>,
+        page: Option<i64>,
+        per_page: Option<i64>,
+    ) -> RequestBuilder {
+        let mut req = self.client.get(self.url("/api/v1/comics"));
+        if let Some(b) = brand {
+            req = req.query(&[("brand", b)]);
+        }
+        if let Some(s) = series {
+            req = req.query(&[("series", s)]);
+        }
+        if let Some(c) = creator {
+            req = req.query(&[("creator", c)]);
+        }
+        if let Some(c) = character {
+            req = req.query(&[("character", c)]);
+        }
+        if let Some(s) = since {
+            req = req.query(&[("since", s)]);
+        }
+        if let Some(u) = until {
+            req = req.query(&[("until", u)]);
+        }
+        if let Some(s) = search {
+            req = req.query(&[("search", s)]);
+        }
+        if let Some(p) = page {
+            req = req.query(&[("page", p.to_string())]);
+        }
+        if let Some(p) = per_page {
+            req = req.query(&[("per_page", p.to_string())]);
+        }
+        req
+    }
+
+    /// List comic releases, filtered and paginated.
+    ///
+    /// Every filter is optional. `page` is 1-based; Percy caps `per_page` at 100.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn list_comics(
+        &self,
+        brand: Option<&str>,
+        series: Option<&str>,
+        creator: Option<&str>,
+        character: Option<&str>,
+        since: Option<&str>,
+        until: Option<&str>,
+        search: Option<&str>,
+        page: Option<i64>,
+        per_page: Option<i64>,
+    ) -> Result<ComicBrowsePage, PercyError> {
+        self.send_into(
+            self.list_comics_request(brand, series, creator, character, since, until, search, page, per_page),
+        )
+        .await
+    }
+
+    /// Fetch one comic release by brand and slug, with its series neighbours.
+    pub async fn get_comic(&self, brand: &str, slug: &str) -> Result<ComicDetail, PercyError> {
+        self.send_into(self.client.get(self.url(&format!("/api/v1/comics/{brand}/{slug}"))))
+            .await
+    }
+
+    fn list_comic_series_request(&self, brand: Option<&str>) -> RequestBuilder {
+        let query: Vec<(&str, String)> = brand.map(|b| vec![("brand", b.to_string())]).unwrap_or_default();
+        self.client.get(self.url("/api/v1/comics/series")).query(&query)
+    }
+
+    /// List every comic series, optionally scoped to one brand.
+    pub async fn list_comic_series(&self, brand: Option<&str>) -> Result<ComicSeriesList, PercyError> {
+        self.send_into(self.list_comic_series_request(brand)).await
+    }
+
+    fn get_comic_series_request(&self, slug: &str, brand: Option<&str>) -> RequestBuilder {
+        let query: Vec<(&str, String)> = brand.map(|b| vec![("brand", b.to_string())]).unwrap_or_default();
+        self.client
+            .get(self.url(&format!("/api/v1/comics/series/{slug}")))
+            .query(&query)
+    }
+
+    /// Fetch one series and every issue in it.
+    ///
+    /// A series slug is derived from a title, so two publishers can collide on one --
+    /// pass `brand` whenever the caller knows it, to avoid an ambiguous match.
+    pub async fn get_comic_series(&self, slug: &str, brand: Option<&str>) -> Result<ComicSeriesPage, PercyError> {
+        self.send_into(self.get_comic_series_request(slug, brand)).await
+    }
+
+    fn list_comic_names_request(&self, kind: &str, brand: Option<&str>, limit: Option<u32>) -> RequestBuilder {
+        let mut req = self
+            .client
+            .get(self.url("/api/v1/comics/names"))
+            .query(&[("kind", kind)]);
+        if let Some(b) = brand {
+            req = req.query(&[("brand", b)]);
+        }
+        if let Some(l) = limit {
+            req = req.query(&[("limit", l.to_string())]);
+        }
+        req
+    }
+
+    /// List distinct creator or character names across the catalogue, with appearance counts.
+    ///
+    /// `kind` is `"creators"` or `"characters"`; anything else is a `400` from Percy.
+    pub async fn list_comic_names(
+        &self,
+        kind: &str,
+        brand: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<ComicNamesResponse, PercyError> {
+        self.send_into(self.list_comic_names_request(kind, brand, limit)).await
+    }
+
     // -- Temp Channels -------------------------------------------------------
 
     /// Fetch temp channel entries for a guild.
@@ -1716,4 +1845,81 @@ pub enum PercyError {
     Http(#[from] reqwest::Error),
     #[error("{0}")]
     Api(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn client() -> PercyClient {
+        PercyClient::new(Client::new(), "http://localhost", "token")
+    }
+
+    fn query_pairs(req: RequestBuilder) -> Vec<(String, String)> {
+        req.build()
+            .unwrap()
+            .url()
+            .query_pairs()
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn list_comics_omits_unset_filters() {
+        let pairs = query_pairs(client().list_comics_request(
+            Some("marvel"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("spider"),
+            Some(2),
+            None,
+        ));
+        assert!(pairs.contains(&("brand".to_string(), "marvel".to_string())));
+        assert!(pairs.contains(&("search".to_string(), "spider".to_string())));
+        assert!(pairs.contains(&("page".to_string(), "2".to_string())));
+        assert!(!pairs.iter().any(|(k, _)| k == "series"));
+        assert!(!pairs.iter().any(|(k, _)| k == "creator"));
+        assert!(!pairs.iter().any(|(k, _)| k == "character"));
+        assert!(!pairs.iter().any(|(k, _)| k == "since"));
+        assert!(!pairs.iter().any(|(k, _)| k == "until"));
+        assert!(!pairs.iter().any(|(k, _)| k == "per_page"));
+    }
+
+    #[test]
+    fn list_comics_with_no_filters_has_no_query() {
+        let pairs = query_pairs(client().list_comics_request(None, None, None, None, None, None, None, None, None));
+        assert!(pairs.is_empty());
+    }
+
+    #[test]
+    fn list_comic_series_brand_is_optional() {
+        assert!(query_pairs(client().list_comic_series_request(None)).is_empty());
+        assert_eq!(
+            query_pairs(client().list_comic_series_request(Some("dc"))),
+            vec![("brand".to_string(), "dc".to_string())]
+        );
+    }
+
+    #[test]
+    fn get_comic_series_brand_is_optional() {
+        assert!(query_pairs(client().get_comic_series_request("spider-man", None)).is_empty());
+        assert_eq!(
+            query_pairs(client().get_comic_series_request("spider-man", Some("marvel"))),
+            vec![("brand".to_string(), "marvel".to_string())]
+        );
+    }
+
+    #[test]
+    fn list_comic_names_always_sends_kind_and_optionally_brand_and_limit() {
+        let pairs = query_pairs(client().list_comic_names_request("creators", None, None));
+        assert_eq!(pairs, vec![("kind".to_string(), "creators".to_string())]);
+
+        let pairs = query_pairs(client().list_comic_names_request("characters", Some("marvel"), Some(25)));
+        assert!(pairs.contains(&("kind".to_string(), "characters".to_string())));
+        assert!(pairs.contains(&("brand".to_string(), "marvel".to_string())));
+        assert!(pairs.contains(&("limit".to_string(), "25".to_string())));
+    }
 }
