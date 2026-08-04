@@ -1868,12 +1868,100 @@ pub struct WatchTitleDetail {
     pub title: WatchTitle,
     #[serde(default)]
     pub credits_of: Option<WatchTitle>,
+    /// Cast and crew, flat and already ordered by role then billing.
+    #[serde(default)]
+    pub credits: Vec<WatchCredit>,
     #[serde(default)]
     pub previous: Option<WatchTitle>,
     #[serde(default)]
     pub next: Option<WatchTitle>,
     #[serde(default)]
     pub universe: WatchUniverse,
+}
+
+/// One person's credit on a title, as `GET /watchlist/titles/{universe}/{slug}` returns it.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchCredit {
+    #[serde(default)]
+    pub tmdb_person_id: i64,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub profile_path: Option<String>,
+    /// `cast`, `director`, `writer` or `creator`.
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub character_name: Option<String>,
+    #[serde(default)]
+    pub billing_order: Option<i64>,
+}
+
+/// A person, as `GET /watchlist/people/{slug}` returns them.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchPerson {
+    #[serde(default)]
+    pub tmdb_person_id: i64,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub profile_path: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// One entry of a person's filmography: their credit plus the whole title.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchPersonCredit {
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub character_name: Option<String>,
+    #[serde(default)]
+    pub billing_order: Option<i64>,
+    #[serde(default)]
+    pub universe_name: String,
+    /// `#RRGGBB`.
+    #[serde(default)]
+    pub universe_accent: String,
+    #[serde(default)]
+    pub title: WatchTitle,
+}
+
+/// The `GET /watchlist/people/{slug}` response. Credits lead with undated titles ("what's
+/// next"), then run newest-first.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchPersonPage {
+    #[serde(default)]
+    pub person: WatchPerson,
+    #[serde(default)]
+    pub credits: Vec<WatchPersonCredit>,
+}
+
+/// One `GET /watchlist/people` match — autocomplete-sized.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchPersonSummary {
+    #[serde(default)]
+    pub tmdb_person_id: i64,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub profile_path: Option<String>,
+    #[serde(default)]
+    pub credit_count: i64,
+}
+
+/// The `GET /watchlist/people` response.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchPeopleResponse {
+    #[serde(default)]
+    pub people: Vec<WatchPersonSummary>,
 }
 
 /// One title's stored watch state.

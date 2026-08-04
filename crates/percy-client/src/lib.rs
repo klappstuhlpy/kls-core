@@ -1741,6 +1741,22 @@ impl PercyClient {
         .await
     }
 
+    /// One person and their whole filmography. An unknown slug is a 404, not an empty page.
+    pub async fn get_watch_person(&self, slug: &str) -> Result<WatchPersonPage, PercyError> {
+        self.send_into(self.client.get(self.url(&format!("/api/v1/watchlist/people/{slug}"))))
+            .await
+    }
+
+    /// Search people by name, best match first — backs person autocomplete.
+    pub async fn search_watch_people(&self, query: &str, limit: u32) -> Result<WatchPeopleResponse, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url("/api/v1/watchlist/people"))
+                .query(&[("q", query.to_string()), ("limit", limit.to_string())]),
+        )
+        .await
+    }
+
     /// Fetch a user's watch progress, optionally scoped to one universe.
     pub async fn get_watch_progress(
         &self,
