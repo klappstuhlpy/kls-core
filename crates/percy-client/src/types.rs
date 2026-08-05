@@ -1753,6 +1753,28 @@ pub struct WatchProvider {
     pub offer: String,
 }
 
+/// The one trailer a title carries (`V44`), with both URLs pre-built by Percy.
+///
+/// `url` is the plain link-out and `embed_url` the iframe source; neither carries playback
+/// parameters, because autoplay is forbidden and *when* the iframe appears is the renderer's
+/// decision. Absent (`None`) rather than empty for a title with no trailer, so a page can
+/// branch on the section existing at all.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WatchTrailer {
+    /// `YouTube` or `Vimeo`, in Percy's canonical casing.
+    #[serde(default)]
+    pub site: String,
+    #[serde(default)]
+    pub key: String,
+    /// TMDB's own video title ("Official Trailer") — the only honest button label.
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub embed_url: String,
+}
+
 /// One entry in a watch order: TMDB metadata plus this project's curation.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct WatchTitle {
@@ -1815,6 +1837,10 @@ pub struct WatchTitle {
     pub importance: Option<String>,
     #[serde(default)]
     pub providers: Vec<WatchProvider>,
+    /// The single trailer Percy selected, or `None` — the common answer for an
+    /// unreleased title, and for any row read before `V44` landed.
+    #[serde(default)]
+    pub trailer: Option<WatchTrailer>,
 }
 
 /// The `GET /watchlist/universes/{slug}` response: everything one page needs.
@@ -1875,6 +1901,20 @@ pub struct WatchTitleDetail {
     pub previous: Option<WatchTitle>,
     #[serde(default)]
     pub next: Option<WatchTitle>,
+    /// 1-based index of this title within the ordering `sort`/`path` describe, and how many
+    /// titles that ordering holds. Neither is derivable from a title row alone, which is why
+    /// Percy sends them: they are the whole of the "position N of M" strip.
+    #[serde(default)]
+    pub position: i64,
+    #[serde(default)]
+    pub total: i64,
+    /// The curated path whose `importance` the title carries, or `None` when the universe
+    /// has none.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// `story` or `release` — the ordering `previous`/`next`/`position` follow.
+    #[serde(default)]
+    pub sort: String,
     #[serde(default)]
     pub universe: WatchUniverse,
 }
@@ -2213,4 +2253,447 @@ pub struct ComicNamesResponse {
     pub kind: String,
     #[serde(default)]
     pub names: Vec<ComicNameEntry>,
+}
+
+// -- Release subscription types -------------------------------------------------
+
+/// One thing a user follows.
+///
+/// Identified by the triple `(media, subject_type, subject_value)`. `subject_value` is an
+/// **opaque key** Percy normalises and matches on — echo back whatever the picker or a
+/// previous response gave you, never `subject_label`, which is only the display form.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct Subscription {
+    /// `comic` or `title`.
+    #[serde(default)]
+    pub media: String,
+    /// `brand` / `series` / `creator` / `character` for comics; `universe` / `franchise` /
+    /// `person` / `character` for titles.
+    #[serde(default)]
+    pub subject_type: String,
+    pub subject_value: String,
+    /// The display form. Nullable in the database, so absent rather than empty.
+    #[serde(default)]
+    pub subject_label: Option<String>,
+    /// `releases` / `news` / `both`.
+    #[serde(default)]
+    pub streams: String,
+    /// `dm` / `off` — `off` mutes a subscription without losing it.
+    #[serde(default)]
+    pub delivery: String,
+    /// Where the subscription was created, as a string snowflake. Context, never a scope.
+    #[serde(default)]
+    pub guild_id: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+}
+
+/// The `GET /releases/users/{id}/subscriptions` response.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SubscriptionsResponse {
+    #[serde(default)]
+    pub subscriptions: Vec<Subscription>,
+}
+
+/// The `DELETE /releases/users/{id}/subscriptions` response: false when there was
+/// nothing to remove.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SubscriptionDeleted {
+    #[serde(default)]
+    pub deleted: bool,
+}
+
+/// A follow, as `PUT /releases/users/{id}/subscriptions` takes it.
+///
+/// One borrowed struct rather than seven positional arguments: `subject_type`,
+/// `subject_value` and `subject_label` are all strings, so a positional signature lets a
+/// caller transpose them and still compile — and sending the *label* as the value creates a
+/// subscription the fan-out can never match. The two `Option`s are omitted when unset so
+/// Percy applies its own defaults (`streams = releases`, `delivery = dm`).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct NewSubscription<'a> {
+    pub media: &'a str,
+    pub subject_type: &'a str,
+    /// The opaque key — a picker `subject_value`, not a label.
+    pub subject_value: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject_label: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub streams: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<&'a str>,
+    /// The guild the follow was created from, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guild_id: Option<u64>,
+}
+
+/// The identifying triple plus whichever mutable field is changing.
+///
+/// At least one of `streams` / `delivery` must be set, or Percy answers `400`.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SubscriptionPatch<'a> {
+    pub media: &'a str,
+    pub subject_type: &'a str,
+    pub subject_value: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub streams: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<&'a str>,
+}
+
+/// One row of the subject picker: the key to subscribe by, plus how to show it.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct Subject {
+    #[serde(default)]
+    pub media: String,
+    #[serde(default)]
+    pub subject_type: String,
+    /// Already normalised by Percy — subscribe with exactly this string.
+    #[serde(default)]
+    pub subject_value: String,
+    #[serde(default)]
+    pub label: String,
+    /// A one-line hint (`Marvel · 42 issues`, `person · 9 credits`).
+    #[serde(default)]
+    pub hint: String,
+}
+
+/// The `GET /releases/subjects` response.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SubjectsResponse {
+    #[serde(default)]
+    pub subjects: Vec<Subject>,
+}
+
+// -- Release overview -----------------------------------------------------------
+
+/// The date span `GET /releases/overview` covers, as ISO `YYYY-MM-DD` strings.
+///
+/// It is the *union* of the two halves and the two do not fill it symmetrically:
+/// comics only ever occupy `[start, today]` (they are matched backwards, on when Percy
+/// first saw them), while titles span the whole range because half the point of a film/TV
+/// overview is what is about to land. A page that labels the whole window "this week" for
+/// both lists is claiming comics it does not have.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct OverviewWindow {
+    #[serde(default)]
+    pub start: String,
+    #[serde(default)]
+    pub end: String,
+}
+
+/// One subject chip on an overview card — an axis a reader could follow to keep seeing it.
+///
+/// `subject_value` is the same opaque key [`Subscription`] carries: echo it into a subscribe
+/// control verbatim, never `label`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct CardSubject {
+    #[serde(default)]
+    pub subject_type: String,
+    #[serde(default)]
+    pub subject_value: String,
+    #[serde(default)]
+    pub label: String,
+}
+
+/// One release on the overview, in the flattest shape both media honestly share.
+///
+/// Two fields are media-dependent and the renderer owns the difference:
+/// * `cover_url` is absolute for a comic and TMDB's relative `poster_path` for a title —
+///   prefix the latter with the image CDN.
+/// * `url` is the source listing for a comic and `None` for a title, whose page is built
+///   from `key` (`{universe}/{slug}`, the same identity the DM path claims deliveries on).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ReleaseCard {
+    /// `comic` or `title`.
+    #[serde(default)]
+    pub media: String,
+    /// `{brand}/{slug}` for a comic, `{universe}/{slug}` for a title.
+    #[serde(default)]
+    pub key: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub subtitle: Option<String>,
+    #[serde(default)]
+    pub release_date: Option<String>,
+    #[serde(default)]
+    pub cover_url: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    /// The primary axes only (brand/series, universe/franchise) — the full credit list
+    /// lives on the detail pages.
+    #[serde(default)]
+    pub subjects: Vec<CardSubject>,
+}
+
+/// The `GET /releases/overview` response.
+///
+/// `followed` is a *subset* of `comics` + `titles`, never a wider query, and is empty
+/// unless a `discord_id` was sent — so a signed-out page renders the same shape with one
+/// section missing rather than a different payload.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ReleasesOverview {
+    #[serde(default)]
+    pub window: OverviewWindow,
+    #[serde(default)]
+    pub comics: Vec<ReleaseCard>,
+    #[serde(default)]
+    pub titles: Vec<ReleaseCard>,
+    #[serde(default)]
+    pub followed: Vec<ReleaseCard>,
+    /// The viewer's read/watched marks, **beside** the cards rather than on them: the
+    /// card half is shared-cached across every visitor and a per-user field on it would
+    /// be a cache poisoning waiting to happen. Empty maps without a `discord_id`.
+    #[serde(default)]
+    pub progress: ProgressMap,
+}
+
+// -- Progress ------------------------------------------------------------------
+//
+// `release_progress` (V42) — one table for both media, keyed by the same
+// `(media, release_key)` identity the cards and the DM delivery claim use. V39's
+// `watch_progress` is a different table behind `get_watch_progress` above, keyed by
+// title id, and the two are deliberately not merged here.
+
+/// One item's mark: `read`/`skipped` for a comic, `watched`/`skipped` for a title.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ProgressMark {
+    #[serde(default)]
+    pub status: String,
+    /// ISO-8601, or `None` for a row Percy stored without one.
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// `{media: {release_key: mark}}`. Percy always sends **both** media keys, so a renderer
+/// can index by a card's `media` without a guard — but `get` is still the safe read here,
+/// because a `#[serde(default)]` on an absent field yields an empty map.
+pub type ProgressMap = std::collections::HashMap<String, std::collections::HashMap<String, ProgressMark>>;
+
+/// One mark, as `PUT /releases/users/{id}/progress` takes it.
+///
+/// A borrowed struct rather than positional arguments for the same reason
+/// [`NewSubscription`] is one: `media`, `release_key` and `status` are all strings, and
+/// Percy **rejects** a status that does not belong to its medium (400) instead of
+/// translating it — a `watched` on a comic means the key is probably wrong too.
+///
+/// `release_key` is the card's `key` verbatim (`{brand}/{slug}` / `{universe}/{slug}`),
+/// never composed from parts by the caller.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ProgressEntry<'a> {
+    pub media: &'a str,
+    pub release_key: &'a str,
+    /// `read` (comic) / `watched` (title) / `skipped` (either).
+    pub status: &'a str,
+    /// The client's own timestamp, which is what makes the merge last-write-wins.
+    /// Omitted when unset, and Percy stamps it itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<&'a str>,
+}
+
+/// The `GET`/`PUT /releases/users/{id}/progress` response.
+///
+/// One type for both because the bodies differ only in `merged`, which a `GET` never
+/// carries (and defaults to `0`). `entries` is always the user's **whole** progress, both
+/// media, so a client can adopt it wholesale after a write.
+///
+/// `merged` counts the rows that actually stuck. Fewer than were sent is a *successful*
+/// merge in which the server was already newer — the client's set is stale and `entries`
+/// is the truth.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ProgressResponse {
+    #[serde(default)]
+    pub merged: i64,
+    #[serde(default)]
+    pub entries: ProgressMap,
+}
+
+// -- News types ------------------------------------------------------------------
+//
+// The news stream behind `/news`, the ticker and the detail pages' related strip.
+// Every item is deliberately thin: Percy caps the excerpt on the way in and never
+// stores the article body, so a client physically cannot render more than the plan's
+// §9 allows (headline, short excerpt, link, source).
+
+/// One tag on a story, in the same key shape a [`Subscription`] is expressed in.
+///
+/// `subject_value` is the opaque key — echo it into a filter link or a subscribe
+/// control verbatim, never a display label.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct NewsSubject {
+    #[serde(default)]
+    pub media: String,
+    #[serde(default)]
+    pub subject_type: String,
+    #[serde(default)]
+    pub subject_value: String,
+}
+
+/// Where a story came from, carried on the item itself rather than in a side table.
+///
+/// Attribution is structural: §9 makes naming the source and linking the original a
+/// condition of showing the story at all, so both travel with every item. `name`
+/// degrades to the slug for a source row that has since been deleted.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct NewsItemSource {
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub homepage: Option<String>,
+}
+
+/// One story.
+///
+/// `image_url` and `author` are present because the feed provided them, **not**
+/// because a page may show them: §9 permits headline, a short excerpt, the source
+/// name and the link, and nothing else.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct NewsItem {
+    #[serde(default)]
+    pub id: i64,
+    /// The original article. Always present — a story without one is not stored.
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub headline: String,
+    #[serde(default)]
+    pub excerpt: Option<String>,
+    #[serde(default)]
+    pub image_url: Option<String>,
+    #[serde(default)]
+    pub author: Option<String>,
+    /// ISO-8601; `None` for a feed entry that carried no date.
+    #[serde(default)]
+    pub published_at: Option<String>,
+    #[serde(default)]
+    pub fetched_at: Option<String>,
+    #[serde(default)]
+    pub source: NewsItemSource,
+    #[serde(default)]
+    pub subjects: Vec<NewsSubject>,
+}
+
+/// Echoes exactly which filters `GET /news` applied.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct NewsFilters {
+    #[serde(default)]
+    pub media: Option<String>,
+    #[serde(default)]
+    pub subject_type: Option<String>,
+    #[serde(default)]
+    pub subject_value: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub since: Option<String>,
+    #[serde(default)]
+    pub search: Option<String>,
+}
+
+/// Every filter `GET /news` accepts, as one borrowed struct.
+///
+/// Same reasoning as [`ComicBrowseQuery`]: six of these are `Option<&'a str>`, so a
+/// positional signature lets a caller swap `source` and `search` and still compile.
+///
+/// `subject_type` and `subject_value` are a **pair** — Percy ignores a lone one
+/// rather than erroring, so a page that clears its filter by blanking one input
+/// shows everything instead of a `400`.
+///
+/// ```ignore
+/// let page = percy
+///     .news(&NewsQuery { media: Some("comic"), per_page: Some(20), ..Default::default() })
+///     .await?;
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct NewsQuery<'a> {
+    /// `comic` or `title`.
+    pub media: Option<&'a str>,
+    pub subject_type: Option<&'a str>,
+    /// The opaque subject key, as the picker or a previous response gave it.
+    pub subject_value: Option<&'a str>,
+    /// A source slug.
+    pub source: Option<&'a str>,
+    /// ISO date or timestamp; stories published on or after it.
+    pub since: Option<&'a str>,
+    /// Substring match on the headline.
+    pub search: Option<&'a str>,
+    /// 1-based.
+    pub page: Option<i64>,
+    /// Percy caps this at 100.
+    pub per_page: Option<i64>,
+    /// Lead the list with what this Discord user follows. Without it the list is
+    /// plain latest and `personalised` is `0` — never a `401`, so the same call
+    /// serves the signed-out page.
+    pub discord_id: Option<&'a str>,
+}
+
+/// The `GET /news` response: one page of the stream.
+///
+/// `items` is **one** list. With a `discord_id`, the first `personalised` of them
+/// are the stories matching that user's subscriptions and the general latest
+/// follows, deduplicated — so a ticker renders it without knowing whether anyone is
+/// signed in.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct NewsPage {
+    #[serde(default)]
+    pub items: Vec<NewsItem>,
+    /// How many leading items came from the caller's subscriptions.
+    #[serde(default)]
+    pub personalised: i64,
+    #[serde(default)]
+    pub page: i64,
+    #[serde(default)]
+    pub per_page: i64,
+    #[serde(default)]
+    pub total: i64,
+    #[serde(default)]
+    pub total_pages: i64,
+    #[serde(default)]
+    pub filters: NewsFilters,
+}
+
+/// The `GET /news/related` response: recent stories for one subject.
+///
+/// An empty `items` is the honest answer for a subject nothing has been written
+/// about, not a `404` — §6.2 asks the *page* to drop the section, which is the
+/// renderer's decision to make from this.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct NewsRelated {
+    #[serde(default)]
+    pub items: Vec<NewsItem>,
+}
+
+/// One configured feed, for the operator view.
+///
+/// `last_status` is TEXT and not a status code: the interesting failures (a DNS
+/// error, a timeout, an open circuit breaker) have no HTTP status at all.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct NewsSource {
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub homepage: Option<String>,
+    #[serde(default)]
+    pub feed_url: String,
+    /// `comic`, `title` or `both`.
+    #[serde(default)]
+    pub media: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub last_fetched: Option<String>,
+    #[serde(default)]
+    pub last_status: Option<String>,
+}
+
+/// The `GET /news/sources` response.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct NewsSourcesResponse {
+    #[serde(default)]
+    pub sources: Vec<NewsSource>,
 }

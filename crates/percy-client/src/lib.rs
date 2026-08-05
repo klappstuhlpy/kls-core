@@ -1819,6 +1819,316 @@ impl PercyClient {
         )
         .await
     }
+
+    // -- Release subscriptions -------------------------------------------------
+    //
+    // Not guild-scoped: a subscription belongs to a Discord user and the DM it
+    // produces is theirs. `discord_id` travels as a string because that is what a
+    // dashboard session holds; Percy parses the path segment itself.
+
+    fn list_subscriptions_request(&self, discord_id: &str, media: Option<&str>) -> RequestBuilder {
+        let query: Vec<(&str, &str)> = media.map(|m| vec![("media", m)]).unwrap_or_default();
+        self.client
+            .get(self.url(&format!("/api/v1/releases/users/{discord_id}/subscriptions")))
+            .query(&query)
+    }
+
+    /// Everything a user follows, optionally scoped to one medium.
+    ///
+    /// A user who follows nothing is an empty list, not a `404`.
+    pub async fn list_subscriptions(
+        &self,
+        discord_id: &str,
+        media: Option<&str>,
+    ) -> Result<SubscriptionsResponse, PercyError> {
+        self.send_into(self.list_subscriptions_request(discord_id, media)).await
+    }
+
+    /// Follow a subject, or refresh the settings of a follow that already exists.
+    ///
+    /// Idempotent: Percy upserts, so re-subscribing is not a conflict. Send the picker's
+    /// `subject_value` verbatim — see [`NewSubscription`].
+    pub async fn put_subscription(
+        &self,
+        discord_id: &str,
+        body: &NewSubscription<'_>,
+    ) -> Result<Subscription, PercyError> {
+        self.send_into(
+            self.client
+                .put(self.url(&format!("/api/v1/releases/users/{discord_id}/subscriptions")))
+                .json(body),
+        )
+        .await
+    }
+
+    /// Change the stream or delivery mode of an existing follow.
+    ///
+    /// [`PercyError::NotFound`] means "the user does not follow that" — unlike
+    /// [`Self::put_subscription`], this never creates one, so a stale toggle in an old tab
+    /// cannot resurrect a subscription removed elsewhere.
+    pub async fn patch_subscription(
+        &self,
+        discord_id: &str,
+        body: &SubscriptionPatch<'_>,
+    ) -> Result<Subscription, PercyError> {
+        self.send_into(
+            self.client
+                .patch(self.url(&format!("/api/v1/releases/users/{discord_id}/subscriptions")))
+                .json(body),
+        )
+        .await
+    }
+
+    fn delete_subscription_request(
+        &self,
+        discord_id: &str,
+        media: &str,
+        subject_type: &str,
+        subject_value: &str,
+    ) -> RequestBuilder {
+        self.client
+            .delete(self.url(&format!("/api/v1/releases/users/{discord_id}/subscriptions")))
+            .query(&[
+                ("media", media),
+                ("subject_type", subject_type),
+                ("subject_value", subject_value),
+            ])
+    }
+
+    /// Unfollow a subject. `deleted` is false when there was nothing to remove.
+    ///
+    /// The triple travels as query parameters, not a body: a DELETE body is awkward for
+    /// every HTTP layer between here and Percy.
+    pub async fn delete_subscription(
+        &self,
+        discord_id: &str,
+        media: &str,
+        subject_type: &str,
+        subject_value: &str,
+    ) -> Result<SubscriptionDeleted, PercyError> {
+        self.send_into(self.delete_subscription_request(discord_id, media, subject_type, subject_value))
+            .await
+    }
+
+    fn search_subjects_request(&self, query: &str, media: Option<&str>, limit: Option<u32>) -> RequestBuilder {
+        let mut req = self.client.get(self.url("/api/v1/releases/subjects"));
+        if !query.is_empty() {
+            req = req.query(&[("q", query)]);
+        }
+        if let Some(media) = media {
+            req = req.query(&[("media", media)]);
+        }
+        if let Some(limit) = limit {
+            req = req.query(&[("limit", limit.to_string())]);
+        }
+        req
+    }
+
+    /// The subject picker: everything a user could follow, ranked against `query`.
+    ///
+    /// An empty `query` returns the catalogue's popular subjects instead of nothing, which
+    /// is what makes the picker useful on first paint.
+    pub async fn search_subjects(
+        &self,
+        query: &str,
+        media: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<SubjectsResponse, PercyError> {
+        self.send_into(self.search_subjects_request(query, media, limit)).await
+    }
+
+    fn releases_overview_request(
+        &self,
+        days: Option<u32>,
+        discord_id: Option<&str>,
+        limit: Option<u32>,
+    ) -> RequestBuilder {
+        let mut req = self.client.get(self.url("/api/v1/releases/overview"));
+        if let Some(days) = days {
+            req = req.query(&[("days", days.to_string())]);
+        }
+        if let Some(discord_id) = discord_id {
+            req = req.query(&[("discord_id", discord_id)]);
+        }
+        if let Some(limit) = limit {
+            req = req.query(&[("limit", limit.to_string())]);
+        }
+        req
+    }
+
+    /// The front page of the catalogue: what just landed and what is imminent.
+    ///
+    /// `days` is the **half-width** of the window (1–30, Percy defaults to 7), `limit` caps
+    /// each list. Passing `discord_id` is what fills `followed`; without it Percy returns an
+    /// empty list rather than a `401`, so the same call serves the signed-out page.
+    ///
+    /// Every parameter is omitted when unset so a plain overview stays a cache-friendly bare
+    /// URL, the same rule [`Self::search_subjects`] follows for an empty query.
+    pub async fn releases_overview(
+        &self,
+        days: Option<u32>,
+        discord_id: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<ReleasesOverview, PercyError> {
+        self.send_into(self.releases_overview_request(days, discord_id, limit))
+            .await
+    }
+
+    // -- Release progress ------------------------------------------------------
+    //
+    // `release_progress` (V42): read/watched marks for both media, keyed by the
+    // card's own `key`. Distinct from [`Self::get_watch_progress`] above, which is
+    // V39's `watch_progress`, keyed by title id and untouched by this.
+
+    fn release_progress_request(&self, discord_id: &str, media: Option<&str>) -> RequestBuilder {
+        let query: Vec<(&str, &str)> = media.map(|m| vec![("media", m)]).unwrap_or_default();
+        self.client
+            .get(self.url(&format!("/api/v1/releases/users/{discord_id}/progress")))
+            .query(&query)
+    }
+
+    /// A user's marks as `{media: {release_key: mark}}`, optionally one medium only.
+    ///
+    /// Both media keys are present either way, and a user who has marked nothing is two
+    /// empty maps rather than a `404`.
+    pub async fn release_progress(
+        &self,
+        discord_id: &str,
+        media: Option<&str>,
+    ) -> Result<ProgressResponse, PercyError> {
+        self.send_into(self.release_progress_request(discord_id, media)).await
+    }
+
+    /// Merge a batch of marks and get the user's whole set back.
+    ///
+    /// Last-write-wins per entry on `updated_at`, so a stale tab replaying its
+    /// localStorage cannot undo a newer mark made elsewhere. `merged` under
+    /// `entries.len()` means the server was already ahead: a success, and the returned
+    /// `entries` is what the client should adopt.
+    pub async fn put_release_progress(
+        &self,
+        discord_id: &str,
+        entries: &[ProgressEntry<'_>],
+    ) -> Result<ProgressResponse, PercyError> {
+        self.send_into(
+            self.client
+                .put(self.url(&format!("/api/v1/releases/users/{discord_id}/progress")))
+                .json(&serde_json::json!({ "entries": entries })),
+        )
+        .await
+    }
+
+    fn delete_release_progress_request(&self, discord_id: &str, media: &str, release_key: &str) -> RequestBuilder {
+        self.client
+            .delete(self.url(&format!("/api/v1/releases/users/{discord_id}/progress")))
+            // Both travel, always: a release key is only unique *within* a medium, and
+            // Percy 400s a key without one rather than treating it as a wildcard.
+            .query(&[("media", media), ("release_key", release_key)])
+    }
+
+    /// Unmark one item. The pair goes as query parameters, as the unsubscribe triple does.
+    pub async fn delete_release_progress(
+        &self,
+        discord_id: &str,
+        media: &str,
+        release_key: &str,
+    ) -> Result<(), PercyError> {
+        self.send_unit(self.delete_release_progress_request(discord_id, media, release_key))
+            .await
+    }
+
+    // -- News ------------------------------------------------------------------
+    //
+    // Read-only and not guild-scoped. Every item carries its source and the link to
+    // the original, because the plan's §9 makes both a condition of showing the
+    // story at all — see [`NewsItem`].
+
+    fn news_request(&self, query: &NewsQuery<'_>) -> RequestBuilder {
+        let mut req = self.client.get(self.url("/api/v1/news"));
+        for (key, value) in [
+            ("media", query.media),
+            ("subject_type", query.subject_type),
+            ("subject_value", query.subject_value),
+            ("source", query.source),
+            ("since", query.since),
+            ("search", query.search),
+            ("discord_id", query.discord_id),
+        ] {
+            if let Some(value) = value {
+                req = req.query(&[(key, value)]);
+            }
+        }
+        if let Some(page) = query.page {
+            req = req.query(&[("page", page.to_string())]);
+        }
+        if let Some(per_page) = query.per_page {
+            req = req.query(&[("per_page", per_page.to_string())]);
+        }
+        req
+    }
+
+    /// One page of the news stream, newest-first.
+    ///
+    /// Every filter is optional and every unset one is omitted, so a plain stream
+    /// stays a bare, cache-friendly URL. Passing `discord_id` is what makes the
+    /// caller's followed stories lead the *same* list — it never splits the payload
+    /// in two, and never `401`s a signed-out reader.
+    pub async fn news(&self, query: &NewsQuery<'_>) -> Result<NewsPage, PercyError> {
+        self.send_into(self.news_request(query)).await
+    }
+
+    fn news_related_request(
+        &self,
+        media: &str,
+        subject_type: &str,
+        subject_value: &str,
+        limit: Option<u32>,
+    ) -> RequestBuilder {
+        let mut req = self.client.get(self.url("/api/v1/news/related")).query(&[
+            ("media", media),
+            ("subject_type", subject_type),
+            ("subject_value", subject_value),
+        ]);
+        if let Some(limit) = limit {
+            req = req.query(&[("limit", limit.to_string())]);
+        }
+        req
+    }
+
+    /// Recent stories for one subject — the detail pages' related strip.
+    ///
+    /// The triple is mandatory here (unlike [`Self::news`], where a lone
+    /// `subject_type` is simply ignored): Percy validates the *pairing* of medium and
+    /// subject type, so `media = "comic"` with `subject_type = "person"` is a `400`
+    /// rather than a silent empty list. `limit` defaults to 3 and Percy caps it at 10.
+    pub async fn news_related(
+        &self,
+        media: &str,
+        subject_type: &str,
+        subject_value: &str,
+        limit: Option<u32>,
+    ) -> Result<NewsRelated, PercyError> {
+        self.send_into(self.news_related_request(media, subject_type, subject_value, limit))
+            .await
+    }
+
+    fn news_sources_request(&self, enabled_only: bool) -> RequestBuilder {
+        let mut req = self.client.get(self.url("/api/v1/news/sources"));
+        // Percy's own default is `false`; sending it would be the same request with a
+        // cache-hostile extra parameter, the rule every other call here follows.
+        if enabled_only {
+            req = req.query(&[("enabled_only", "true")]);
+        }
+        req
+    }
+
+    /// Every configured feed, with when it was last polled and what it answered.
+    ///
+    /// Deliberately uncached on Percy's side: `last_status` exists to tell an operator
+    /// a feed is failing *now*.
+    pub async fn news_sources(&self, enabled_only: bool) -> Result<NewsSourcesResponse, PercyError> {
+        self.send_into(self.news_sources_request(enabled_only)).await
+    }
 }
 
 // -- Error type --------------------------------------------------------------
@@ -1902,6 +2212,293 @@ mod tests {
             query_pairs(client().get_comic_series_request("spider-man", Some("marvel"))),
             vec![("brand".to_string(), "marvel".to_string())]
         );
+    }
+
+    #[test]
+    fn subject_search_omits_an_empty_query() {
+        // Percy treats a missing `q` as "show me the popular subjects"; sending `q=`
+        // would be the same request with a cache-hostile extra parameter.
+        assert!(query_pairs(client().search_subjects_request("", None, None)).is_empty());
+
+        let pairs = query_pairs(client().search_subjects_request("loki", Some("title"), Some(10)));
+        assert!(pairs.contains(&("q".to_string(), "loki".to_string())));
+        assert!(pairs.contains(&("media".to_string(), "title".to_string())));
+        assert!(pairs.contains(&("limit".to_string(), "10".to_string())));
+    }
+
+    #[test]
+    fn deleting_a_subscription_sends_the_whole_triple() {
+        // All three identify the row; dropping one would delete a different follow.
+        assert_eq!(
+            query_pairs(client().delete_subscription_request("42", "comic", "series", "amazing-spider-man")),
+            vec![
+                ("media".to_string(), "comic".to_string()),
+                ("subject_type".to_string(), "series".to_string()),
+                ("subject_value".to_string(), "amazing-spider-man".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn listing_subscriptions_scopes_by_media_only_when_asked() {
+        assert!(query_pairs(client().list_subscriptions_request("42", None)).is_empty());
+        assert_eq!(
+            query_pairs(client().list_subscriptions_request("42", Some("title"))),
+            vec![("media".to_string(), "title".to_string())]
+        );
+    }
+
+    #[test]
+    fn unset_subscription_fields_are_omitted_from_the_body() {
+        // Percy defaults `streams`/`delivery` itself, and a patch with neither set is a
+        // 400 — so an unset field must not serialise as null.
+        let body = serde_json::to_value(NewSubscription {
+            media: "title",
+            subject_type: "person",
+            subject_value: "pedro-pascal",
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({"media": "title", "subject_type": "person", "subject_value": "pedro-pascal"})
+        );
+
+        let patch = serde_json::to_value(SubscriptionPatch {
+            media: "comic",
+            subject_type: "brand",
+            subject_value: "marvel",
+            delivery: Some("off"),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(
+            patch,
+            serde_json::json!({"media": "comic", "subject_type": "brand", "subject_value": "marvel", "delivery": "off"})
+        );
+    }
+
+    #[test]
+    fn the_overview_omits_every_unset_parameter() {
+        // A signed-out page is the bare URL: Percy's own defaults, nothing to key a cache on.
+        assert!(query_pairs(client().releases_overview_request(None, None, None)).is_empty());
+
+        let pairs = query_pairs(client().releases_overview_request(Some(30), Some("42"), Some(12)));
+        assert!(pairs.contains(&("days".to_string(), "30".to_string())));
+        // Personalisation is what turns `followed` from an empty list into a section.
+        assert!(pairs.contains(&("discord_id".to_string(), "42".to_string())));
+        assert!(pairs.contains(&("limit".to_string(), "12".to_string())));
+    }
+
+    #[test]
+    fn progress_scopes_by_media_only_when_asked() {
+        assert!(query_pairs(client().release_progress_request("42", None)).is_empty());
+        assert_eq!(
+            query_pairs(client().release_progress_request("42", Some("comic"))),
+            vec![("media".to_string(), "comic".to_string())]
+        );
+    }
+
+    #[test]
+    fn unmarking_always_sends_both_halves_of_the_identity() {
+        // Percy 400s a `release_key` without a `media`: the key is only unique within
+        // one medium, so honouring it unscoped could delete a comic's row because a film
+        // happened to share its slug.
+        assert_eq!(
+            query_pairs(client().delete_release_progress_request("42", "title", "mcu/iron-man")),
+            vec![
+                ("media".to_string(), "title".to_string()),
+                ("release_key".to_string(), "mcu/iron-man".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_progress_entry_omits_an_unset_timestamp_and_never_renames_its_key() {
+        let body = serde_json::to_value(ProgressEntry {
+            media: "comic",
+            // The card's `key` verbatim, brand casing and all.
+            release_key: "MARVEL/amazing-spider-man-1",
+            status: "read",
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({"media": "comic", "release_key": "MARVEL/amazing-spider-man-1", "status": "read"})
+        );
+
+        let stamped = serde_json::to_value(ProgressEntry {
+            media: "title",
+            release_key: "mcu/iron-man",
+            status: "watched",
+            updated_at: Some("2026-08-05T10:00:00Z"),
+        })
+        .unwrap();
+        assert_eq!(stamped["updated_at"], "2026-08-05T10:00:00Z");
+    }
+
+    #[test]
+    fn a_progress_payload_keeps_both_media_and_reports_a_partial_merge() {
+        let response: ProgressResponse = serde_json::from_value(serde_json::json!({
+            "merged": 1,
+            "entries": {
+                "comic": {"MARVEL/asm-12": {"status": "read", "updated_at": "2026-08-05T10:00:00"}},
+                "title": {}
+            }
+        }))
+        .unwrap();
+
+        // `merged` under what was sent is a success in which the server was newer.
+        assert_eq!(response.merged, 1);
+        assert_eq!(response.entries["comic"]["MARVEL/asm-12"].status, "read");
+        // Both media always present, so a renderer indexes without a guard.
+        assert!(response.entries["title"].is_empty());
+
+        // A GET carries no `merged`; it must still deserialise.
+        let listed: ProgressResponse =
+            serde_json::from_value(serde_json::json!({"entries": {"comic": {}, "title": {}}})).unwrap();
+        assert_eq!(listed.merged, 0);
+    }
+
+    #[test]
+    fn the_overview_carries_progress_beside_the_cards_and_defaults_to_empty() {
+        let overview: ReleasesOverview = serde_json::from_value(serde_json::json!({
+            "comics": [{"media": "comic", "key": "MARVEL/asm-12"}],
+            "progress": {"comic": {"MARVEL/asm-12": {"status": "read"}}, "title": {}}
+        }))
+        .unwrap();
+        assert_eq!(overview.progress["comic"]["MARVEL/asm-12"].status, "read");
+        // ...and `updated_at` is nullable in the database, so it must not be required.
+        assert!(overview.progress["comic"]["MARVEL/asm-12"].updated_at.is_none());
+
+        // A signed-out overview (and an older Percy) omits the key entirely.
+        let signed_out: ReleasesOverview = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(signed_out.progress.is_empty());
+    }
+
+    #[test]
+    fn news_omits_every_unset_filter() {
+        // The ticker's call: latest, nothing else. A bare URL is what makes it
+        // cacheable across every signed-out reader.
+        assert!(query_pairs(client().news_request(&NewsQuery::default())).is_empty());
+
+        let pairs = query_pairs(client().news_request(&NewsQuery {
+            media: Some("comic"),
+            search: Some("spider"),
+            page: Some(2),
+            ..Default::default()
+        }));
+        assert!(pairs.contains(&("media".to_string(), "comic".to_string())));
+        assert!(pairs.contains(&("search".to_string(), "spider".to_string())));
+        assert!(pairs.contains(&("page".to_string(), "2".to_string())));
+        for absent in [
+            "subject_type",
+            "subject_value",
+            "source",
+            "since",
+            "per_page",
+            "discord_id",
+        ] {
+            assert!(!pairs.iter().any(|(k, _)| k == absent), "{absent} should be omitted");
+        }
+    }
+
+    #[test]
+    fn news_sends_the_subject_pair_and_the_viewer() {
+        let pairs = query_pairs(client().news_request(&NewsQuery {
+            subject_type: Some("series"),
+            // The opaque key, not the label — posting "Amazing Spider-Man" here would
+            // filter on a subject Percy has never stored.
+            subject_value: Some("amazing-spider-man"),
+            discord_id: Some("42"),
+            per_page: Some(20),
+            ..Default::default()
+        }));
+        assert!(pairs.contains(&("subject_type".to_string(), "series".to_string())));
+        assert!(pairs.contains(&("subject_value".to_string(), "amazing-spider-man".to_string())));
+        // Personalisation is what makes followed stories lead the same single list.
+        assert!(pairs.contains(&("discord_id".to_string(), "42".to_string())));
+        assert!(pairs.contains(&("per_page".to_string(), "20".to_string())));
+    }
+
+    #[test]
+    fn news_related_always_sends_the_whole_triple_and_limit_only_when_set() {
+        assert_eq!(
+            query_pairs(client().news_related_request("comic", "series", "amazing-spider-man", None)),
+            vec![
+                ("media".to_string(), "comic".to_string()),
+                ("subject_type".to_string(), "series".to_string()),
+                ("subject_value".to_string(), "amazing-spider-man".to_string()),
+            ]
+        );
+        let pairs = query_pairs(client().news_related_request("title", "person", "pedro-pascal", Some(3)));
+        assert!(pairs.contains(&("limit".to_string(), "3".to_string())));
+    }
+
+    #[test]
+    fn news_sources_sends_enabled_only_when_it_differs_from_percys_default() {
+        assert!(query_pairs(client().news_sources_request(false)).is_empty());
+        assert_eq!(
+            query_pairs(client().news_sources_request(true)),
+            vec![("enabled_only".to_string(), "true".to_string())]
+        );
+    }
+
+    #[test]
+    fn a_title_detail_carries_its_place_in_the_ordering_and_its_trailer() {
+        // The four fields the detail page's "position N of M" strip is made of, plus the
+        // V44 trailer — both URLs arrive pre-built, so the renderer never assembles one.
+        let detail: WatchTitleDetail = serde_json::from_value(serde_json::json!({
+            "title": {
+                "slug": "iron-man",
+                "title": "Iron Man",
+                "trailer": {
+                    "site": "YouTube",
+                    "key": "8ugaeA-nMTc",
+                    "name": "Official Trailer",
+                    "url": "https://www.youtube.com/watch?v=8ugaeA-nMTc",
+                    "embed_url": "https://www.youtube.com/embed/8ugaeA-nMTc"
+                }
+            },
+            "credits": [],
+            "position": 3,
+            "total": 42,
+            "path": "complete",
+            "sort": "story",
+            "universe": {"slug": "mcu", "name": "Marvel Cinematic Universe"}
+        }))
+        .unwrap();
+
+        assert_eq!((detail.position, detail.total), (3, 42));
+        assert_eq!(detail.path.as_deref(), Some("complete"));
+        assert_eq!(detail.sort, "story");
+        let trailer = detail.title.trailer.expect("the trailer deserialises");
+        assert_eq!(trailer.site, "YouTube");
+        assert_eq!(trailer.embed_url, "https://www.youtube.com/embed/8ugaeA-nMTc");
+        // The embed URL carries no playback parameters: autoplay is forbidden (§6.2).
+        assert!(!trailer.embed_url.contains("autoplay"));
+    }
+
+    #[test]
+    fn a_title_without_a_trailer_is_none_rather_than_a_deserialisation_failure() {
+        // `null` and "the key is absent entirely" (a row read before V44) must both land
+        // as None — the common case, not an error.
+        let with_null: WatchTitle = serde_json::from_value(serde_json::json!({
+            "slug": "avengers-doomsday",
+            "trailer": null
+        }))
+        .unwrap();
+        assert!(with_null.trailer.is_none());
+
+        let legacy: WatchTitle = serde_json::from_value(serde_json::json!({"slug": "iron-man"})).unwrap();
+        assert!(legacy.trailer.is_none());
+
+        // ...and a detail payload missing the ordering fields still shapes, so a dashboard
+        // built against this crate survives an older Percy.
+        let bare: WatchTitleDetail = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!((bare.position, bare.total), (0, 0));
+        assert_eq!(bare.path, None);
     }
 
     #[test]
