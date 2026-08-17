@@ -1841,6 +1841,24 @@ pub struct WatchTitle {
     /// unreleased title, and for any row read before `V44` landed.
     #[serde(default)]
     pub trailer: Option<WatchTrailer>,
+    /// The season this entry is, or `None` for a film and for a series row (`V45`). A show with
+    /// two or more countable seasons is one entry per season; a single-season show stays one
+    /// entry and reads as "Hawkeye", not "Hawkeye: Season 1".
+    #[serde(default)]
+    pub season_number: Option<i64>,
+    /// TMDB's own name for the season — usually `Season 2`, sometimes `Specials`, and a real
+    /// name for an anthology. `None` whenever `season_number` is.
+    #[serde(default)]
+    pub season_name: Option<String>,
+    /// The series row this season belongs to. Set exactly when `season_number` is.
+    ///
+    /// A series that *has* seasons is a container rather than an entry: it keeps the identity,
+    /// the series-level cast and the trailer, while the seasons are what a reader watches and
+    /// marks. Percy already excludes containers from its counts, its runtime totals and its
+    /// release window, so a renderer that wants "the entries" only has to drop rows some other
+    /// row names as its parent.
+    #[serde(default)]
+    pub parent_id: Option<i64>,
 }
 
 /// The `GET /watchlist/universes/{slug}` response: everything one page needs.
@@ -1894,6 +1912,14 @@ pub struct WatchTitleDetail {
     pub title: WatchTitle,
     #[serde(default)]
     pub credits_of: Option<WatchTitle>,
+    /// The series this entry is a season of (`V45`), or `None` when it is not a season.
+    #[serde(default)]
+    pub parent: Option<WatchTitle>,
+    /// The seasons under this entry, in season order — empty unless this is a series that was
+    /// split per season. At most one of `parent`/`seasons` is ever populated, and both come out
+    /// of the page payload Percy already built, so the season context costs no extra round trip.
+    #[serde(default)]
+    pub seasons: Vec<WatchTitle>,
     /// Cast and crew, flat and already ordered by role then billing.
     #[serde(default)]
     pub credits: Vec<WatchCredit>,
