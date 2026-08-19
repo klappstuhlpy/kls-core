@@ -1751,6 +1751,12 @@ pub struct WatchProvider {
     /// `flatrate`, `rent` or `buy`.
     #[serde(default)]
     pub offer: String,
+    /// TMDB's per-region watch link -- the attribution their terms ask for wherever the
+    /// provider logos are shown. Percy stores it on every provider row of a region (the
+    /// value is a property of the region, not of the provider), so a renderer can hang an
+    /// anchor on each logo without a second lookup. `None` for a region TMDB gave no link.
+    #[serde(default)]
+    pub link: Option<String>,
 }
 
 /// The one trailer a title carries (`V44`), with both URLs pre-built by Percy.
