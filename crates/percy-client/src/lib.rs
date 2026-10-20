@@ -1379,20 +1379,22 @@ impl PercyClient {
         guild_id: u64,
         case_index: u64,
         reason: &str,
+        moderator_id: &str,
     ) -> Result<CaseActionResponse, PercyError> {
         self.send_into(
             self.client
                 .patch(self.url(&format!("/api/v1/guilds/{guild_id}/cases/{case_index}")))
-                .json(&serde_json::json!({"reason": reason})),
+                .json(&serde_json::json!({"reason": reason, "moderator_id": moderator_id})),
         )
         .await
     }
 
-    /// Close (delete) a case, removing its modlog channel post.
-    pub async fn delete_case(&self, guild_id: u64, case_index: u64) -> Result<(), PercyError> {
+    /// Close (delete) a case, removing its modlog channel post. Percy enforces Manage Server on `moderator_id`.
+    pub async fn delete_case(&self, guild_id: u64, case_index: u64, moderator_id: &str) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/cases/{case_index}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/cases/{case_index}")))
+                .query(&[("moderator_id", moderator_id)]),
         )
         .await
     }
