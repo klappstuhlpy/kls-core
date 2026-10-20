@@ -282,14 +282,17 @@ impl PercyClient {
     }
 
     /// Update a member's roles.
+    /// Give and take a member's roles as `moderator_id` (the signed-in dashboard user), who
+    /// needs Manage Roles and may only touch roles below their own top role.
     pub async fn member_roles(
         &self,
         guild_id: u64,
         user_id: &str,
         add: &[String],
         remove: &[String],
+        moderator_id: &str,
     ) -> Result<(), PercyError> {
-        let body = serde_json::json!({"add": add, "remove": remove});
+        let body = serde_json::json!({"add": add, "remove": remove, "moderator_id": moderator_id});
         self.send_unit(
             self.client
                 .patch(self.url(&format!("/api/v1/guilds/{guild_id}/members/{user_id}/roles")))
@@ -386,38 +389,42 @@ impl PercyClient {
         .await
     }
 
-    /// Patch sentinel configuration.
-    pub async fn patch_sentinel(&self, guild_id: u64, patch: &serde_json::Value) -> Result<(), PercyError> {
-        self.send_unit(
-            self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/sentinel")))
-                .json(patch),
-        )
-        .await
+    /// Patch sentinel configuration. Returns Percy's warnings about the saved setup (e.g. the
+    /// verification channel is still visible to @everyone), to be shown to the user.
+    pub async fn patch_sentinel(&self, guild_id: u64, patch: &serde_json::Value) -> Result<Vec<String>, PercyError> {
+        let saved: SentinelSaved = self
+            .send_into(
+                self.client
+                    .patch(self.url(&format!("/api/v1/guilds/{guild_id}/sentinel")))
+                    .json(patch),
+            )
+            .await?;
+        Ok(saved.warnings)
     }
 
-    /// Send the sentinel verification message to a channel and return the message_id.
+    /// Send the sentinel verification message to a channel; returns its message id plus Percy's
+    /// warnings about the channel (see [`Self::patch_sentinel`]).
     pub async fn send_sentinel_message(
         &self,
         guild_id: u64,
         channel_id: u64,
         title: &str,
         content: &str,
-    ) -> Result<u64, PercyError> {
+    ) -> Result<(u64, Vec<String>), PercyError> {
         let body = serde_json::json!({
             "channel_id": channel_id,
             "guild_id": guild_id,
             "title": title,
             "content": content,
         });
-        let data: serde_json::Value = self
+        let sent: SentinelSaved = self
             .send_into(
                 self.client
                     .post(self.url(&format!("/api/v1/guilds/{guild_id}/sentinel/message")))
                     .json(&body),
             )
             .await?;
-        Ok(data["message_id"].as_u64().unwrap_or(0))
+        Ok((sent.message_id, sent.warnings))
     }
 
     /// Enable or disable the sentinel.

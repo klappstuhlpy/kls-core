@@ -873,6 +873,19 @@ pub struct BatchResult {
     pub ok: bool,
     #[serde(default)]
     pub error: Option<String>,
+    /// Advice about a saved `sentinel` op (absent from older Percy builds and other ops).
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+/// What Percy answers a sentinel save or verification-message send with.
+#[derive(Debug, Deserialize)]
+pub struct SentinelSaved {
+    /// Set by `/sentinel/message` only.
+    #[serde(default)]
+    pub message_id: u64,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 // -- Changelog ---------------------------------------------------------------
