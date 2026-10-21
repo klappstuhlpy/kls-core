@@ -500,6 +500,17 @@ impl PercyClient {
         .await
     }
 
+    /// Post one harmless test embed to a posting feature's saved destination
+    /// (`audit_log`/`alerts`/`mod_log`/`message_log`/`voice_log`/`polls`).
+    pub async fn send_test_message(&self, guild_id: u64, feature: &str) -> Result<ActionMessage, PercyError> {
+        self.send_into(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/test-message")))
+                .json(&serde_json::json!({ "feature": feature })),
+        )
+        .await
+    }
+
     /// Turn leveling on in one step. `level_up_channel`: 0 none, 1 where they talked, 2 DM, else a text channel id.
     pub async fn setup_leveling(
         &self,
