@@ -500,6 +500,21 @@ impl PercyClient {
         .await
     }
 
+    /// Turn leveling on in one step. `level_up_channel`: 0 none, 1 where they talked, 2 DM, else a text channel id.
+    pub async fn setup_leveling(
+        &self,
+        guild_id: u64,
+        level_up_channel: i64,
+        preset_roles: bool,
+    ) -> Result<ActionMessage, PercyError> {
+        self.send_into(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/setup/leveling")))
+                .json(&serde_json::json!({ "level_up_channel": level_up_channel, "preset_roles": preset_roles })),
+        )
+        .await
+    }
+
     // -- Role menus ------------------------------------------------------------
 
     pub async fn get_role_menus(&self, guild_id: u64) -> Result<RoleMenusResponse, PercyError> {
