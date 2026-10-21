@@ -170,7 +170,7 @@ impl PercyClient {
         Ok(refusal_from_body(&body))
     }
 
-    /// Where requests are posted and which roles may decide them.
+    /// Where requests are posted and which roles may file them.
     pub async fn get_request_settings(&self, guild_id: u64) -> Result<RequestSettings, PercyError> {
         self.send_into(
             self.client

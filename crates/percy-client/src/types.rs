@@ -3078,7 +3078,7 @@ pub struct RequestDecision {
     pub request: Option<ActionRequest>,
 }
 
-/// `GET`/`PATCH /requests/settings`: where requests are posted and who may decide them.
+/// `GET`/`PATCH /requests/settings`: where requests are posted and which roles may file them.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RequestSettings {
     #[serde(default)]
