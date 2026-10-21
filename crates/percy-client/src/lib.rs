@@ -72,6 +72,127 @@ impl PercyClient {
         Ok(resp.json().await?)
     }
 
+    // -- Notifications and action requests -----------------------------------
+
+    /// A user's notification feed (newest first); `before` is the id cursor for the next page.
+    pub async fn get_notifications(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        limit: u32,
+        before: Option<&str>,
+    ) -> Result<NotificationList, PercyError> {
+        let mut query = vec![("user_id", user_id.to_string()), ("limit", limit.to_string())];
+        if let Some(b) = before {
+            query.push(("before", b.to_string()));
+        }
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/notifications")))
+                .query(&query),
+        )
+        .await
+    }
+
+    /// Unread count and pending-request count for the nav badge.
+    pub async fn get_notification_summary(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+    ) -> Result<NotificationSummary, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/notifications/summary")))
+                .query(&[("user_id", user_id)]),
+        )
+        .await
+    }
+
+    /// Mark everything up to and including `up_to_id` read. Returns `{ok, unread}`.
+    pub async fn mark_notifications_read(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        up_to_id: &str,
+    ) -> Result<serde_json::Value, PercyError> {
+        // Percy wants an integer; send a number when the cursor parses, else let Percy 422 it.
+        let up_to = up_to_id
+            .parse::<i64>()
+            .map_or_else(|_| serde_json::Value::from(up_to_id), serde_json::Value::from);
+        self.send_into(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/notifications/read")))
+                .json(&serde_json::json!({ "user_id": user_id, "up_to_id": up_to })),
+        )
+        .await
+    }
+
+    /// Action requests; `status` is `pending` or `all`.
+    pub async fn get_action_requests(
+        &self,
+        guild_id: u64,
+        status: &str,
+        limit: u32,
+    ) -> Result<ActionRequestList, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/requests")))
+                .query(&[("status", status.to_string()), ("limit", limit.to_string())]),
+        )
+        .await
+    }
+
+    /// Approve or deny a request. A refusal (400/403/404/409) is returned as `Ok` with
+    /// `ok == false` and Percy's `message`, so the dashboard can show why; transport and other
+    /// errors stay `Err`.
+    pub async fn decide_action_request(
+        &self,
+        guild_id: u64,
+        request_id: &str,
+        moderator_id: u64,
+        approve: bool,
+        note: Option<&str>,
+    ) -> Result<RequestDecision, PercyError> {
+        let req = self
+            .client
+            .post(self.url(&format!("/api/v1/guilds/{guild_id}/requests/{request_id}/decide")))
+            .json(&serde_json::json!({
+                "moderator_id": moderator_id,
+                "decision": if approve { "approve" } else { "deny" },
+                "note": note,
+            }));
+        let resp = req.bearer_auth(&self.token).send().await?;
+        let status = resp.status().as_u16();
+        if !matches!(status, 400 | 403 | 404 | 409) {
+            return Ok(Self::check(resp).await?.json().await?);
+        }
+        let body = resp.text().await.unwrap_or_default();
+        Ok(refusal_from_body(&body))
+    }
+
+    /// Where requests are posted and which roles may decide them.
+    pub async fn get_request_settings(&self, guild_id: u64) -> Result<RequestSettings, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/requests/settings"))),
+        )
+        .await
+    }
+
+    /// Replace both settings; `body` must carry `channel_id` and `role_ids`.
+    pub async fn update_request_settings(
+        &self,
+        guild_id: u64,
+        body: &serde_json::Value,
+    ) -> Result<RequestSettings, PercyError> {
+        self.send_into(
+            self.client
+                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/requests/settings")))
+                .json(body),
+        )
+        .await
+    }
+
     // -- Guild config --------------------------------------------------------
 
     /// Fetch full guild config + metadata from Percy.
@@ -629,11 +750,8 @@ impl PercyClient {
     // -- AutoMod presets -------------------------------------------------------
 
     pub async fn get_automod(&self, guild_id: u64) -> Result<AutoModInfo, PercyError> {
-        self.send_into(
-            self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/automod"))),
-        )
-        .await
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/automod"))))
+            .await
     }
 
     /// Create or edit the Discord rule for one preset (`{enabled, exempt_role_ids, exempt_channel_ids, keywords?}`).
@@ -2422,9 +2540,36 @@ pub enum PercyError {
     Api(String),
 }
 
+/// Turns a refused decide response into a [`RequestDecision`]: Percy's own envelope when it is
+/// one, else FastAPI's `{"detail": ...}`, else the raw text.
+fn refusal_from_body(body: &str) -> RequestDecision {
+    if let Ok(mut d) = serde_json::from_str::<RequestDecision>(body) {
+        d.ok = false;
+        return d;
+    }
+    let message = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("detail").and_then(|d| d.as_str().map(str::to_string)))
+        .unwrap_or_else(|| body.to_string());
+    RequestDecision {
+        ok: false,
+        status: "error".into(),
+        message,
+        request: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refusal_body_keeps_envelope_or_detail() {
+        let d = refusal_from_body(r#"{"ok":false,"status":"denied","message":"already denied","request":null}"#);
+        assert!(!d.ok && d.message == "already denied" && d.status == "denied");
+        let d = refusal_from_body(r#"{"detail":"moderator not in server"}"#);
+        assert!(!d.ok && d.message == "moderator not in server");
+    }
 
     fn client() -> PercyClient {
         PercyClient::new(Client::new(), "http://localhost", "token")
