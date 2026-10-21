@@ -336,6 +336,45 @@ impl PercyClient {
         .await
     }
 
+    /// A member's rank card style on one server, with the presets to choose from.
+    pub async fn get_rank_card(&self, discord_id: &str, guild_id: u64) -> Result<RankCard, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/users/{discord_id}/rank-card")))
+                .query(&[("guild_id", guild_id.to_string())]),
+        )
+        .await
+    }
+
+    /// Replace a member's (global) rank card style; `{}` follows the server default.
+    pub async fn put_rank_card(
+        &self,
+        discord_id: &str,
+        style: &std::collections::HashMap<String, String>,
+    ) -> Result<(), PercyError> {
+        self.send_unit(
+            self.client
+                .put(self.url(&format!("/api/v1/users/{discord_id}/rank-card")))
+                .json(&serde_json::json!({ "style": style })),
+        )
+        .await
+    }
+
+    /// Render the member's card in a draft style without storing it; returns PNG bytes.
+    pub async fn preview_rank_card(
+        &self,
+        discord_id: &str,
+        guild_id: u64,
+        style: &std::collections::HashMap<String, String>,
+    ) -> Result<Vec<u8>, PercyError> {
+        let req = self
+            .client
+            .post(self.url(&format!("/api/v1/users/{discord_id}/rank-card/preview")))
+            .json(&serde_json::json!({ "guild_id": guild_id, "style": style }));
+        let resp = Self::check(req.bearer_auth(&self.token).send().await?).await?;
+        Ok(resp.bytes().await?.to_vec())
+    }
+
     /// Fetch a user's avatar history (base64 images + timestamps).
     pub async fn get_member_avatars(
         &self,
@@ -439,11 +478,175 @@ impl PercyClient {
 
     // -- Leveling ------------------------------------------------------------
 
+    /// Per-feature health: can Percy post/assign where this server configured it to (live, uncached).
+    pub async fn get_guild_health(&self, guild_id: u64) -> Result<GuildHealth, PercyError> {
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/health"))))
+            .await
+    }
+
+    /// Point the chosen logs (`audit`/`mod`/`message`/`voice`/`alerts`) at one channel; with
+    /// `channel_id: None` Percy creates a private `#percy-logs` first.
+    pub async fn setup_logging(
+        &self,
+        guild_id: u64,
+        channel_id: Option<u64>,
+        logs: &[String],
+    ) -> Result<ActionMessage, PercyError> {
+        self.send_into(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/setup/logging")))
+                .json(&serde_json::json!({ "channel_id": channel_id, "logs": logs })),
+        )
+        .await
+    }
+
+    // -- Role menus ------------------------------------------------------------
+
+    pub async fn get_role_menus(&self, guild_id: u64) -> Result<RoleMenusResponse, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/rolemenus"))),
+        )
+        .await
+    }
+
+    /// Post a new menu. Body: `{channel_id, title, description?, unique?}`.
+    pub async fn create_role_menu(&self, guild_id: u64, body: &serde_json::Value) -> Result<ActionMessage, PercyError> {
+        self.send_into(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/rolemenus")))
+                .json(body),
+        )
+        .await
+    }
+
+    /// Change title / description / single-choice. Body: any of `{title, description, unique}`.
+    pub async fn patch_role_menu(
+        &self,
+        guild_id: u64,
+        menu_id: i64,
+        body: &serde_json::Value,
+    ) -> Result<(), PercyError> {
+        self.send_unit(
+            self.client
+                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/rolemenus/{menu_id}")))
+                .json(body),
+        )
+        .await
+    }
+
+    /// Offer a role on a menu. Body: `{role_id, emoji?, label?}`.
+    pub async fn add_role_menu_role(
+        &self,
+        guild_id: u64,
+        menu_id: i64,
+        body: &serde_json::Value,
+    ) -> Result<(), PercyError> {
+        self.send_unit(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/rolemenus/{menu_id}/roles")))
+                .json(body),
+        )
+        .await
+    }
+
+    pub async fn remove_role_menu_role(&self, guild_id: u64, menu_id: i64, role_id: u64) -> Result<(), PercyError> {
+        self.send_unit(self.client.delete(self.url(&format!(
+            "/api/v1/guilds/{guild_id}/rolemenus/{menu_id}/roles/{role_id}"
+        ))))
+        .await
+    }
+
+    pub async fn delete_role_menu(&self, guild_id: u64, menu_id: i64) -> Result<(), PercyError> {
+        self.send_unit(
+            self.client
+                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/rolemenus/{menu_id}"))),
+        )
+        .await
+    }
+
+    // -- Starboard -------------------------------------------------------------
+
+    pub async fn get_starboard(&self, guild_id: u64) -> Result<StarboardInfo, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/starboard"))),
+        )
+        .await
+    }
+
+    pub async fn patch_starboard(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
+        self.send_unit(
+            self.client
+                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/starboard")))
+                .json(body),
+        )
+        .await
+    }
+
+    // -- Tags (write) ------------------------------------------------------------
+
+    /// Create a tag owned by `owner_id` (the dashboard user).
+    pub async fn create_tag(
+        &self,
+        guild_id: u64,
+        name: &str,
+        content: &str,
+        owner_id: &str,
+    ) -> Result<ActionMessage, PercyError> {
+        self.send_into(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/tags")))
+                .json(&serde_json::json!({
+                    "name": name, "content": content, "owner_id": owner_id.parse::<u64>().unwrap_or_default(),
+                })),
+        )
+        .await
+    }
+
+    /// Replace a tag's content.
+    pub async fn edit_tag(&self, guild_id: u64, tag_id: i64, content: &str) -> Result<ActionMessage, PercyError> {
+        self.send_into(
+            self.client
+                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/tags/{tag_id}")))
+                .json(&serde_json::json!({ "content": content })),
+        )
+        .await
+    }
+
+    // -- Reminders ---------------------------------------------------------------
+
+    pub async fn get_user_reminders(&self, discord_id: &str) -> Result<RemindersResponse, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/users/{discord_id}/reminders"))),
+        )
+        .await
+    }
+
+    pub async fn delete_user_reminder(&self, discord_id: &str, reminder_id: i64) -> Result<(), PercyError> {
+        self.send_unit(
+            self.client
+                .delete(self.url(&format!("/api/v1/users/{discord_id}/reminders/{reminder_id}"))),
+        )
+        .await
+    }
+
     /// Fetch leveling config for a guild.
     pub async fn get_leveling_config(&self, guild_id: u64) -> Result<LevelingConfig, PercyError> {
         self.send_into(
             self.client
                 .get(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/config"))),
+        )
+        .await
+    }
+
+    /// Post the level-up message once as a test, as it would look for `user_id`.
+    pub async fn send_level_up_test(&self, guild_id: u64, user_id: &str) -> Result<ActionMessage, PercyError> {
+        self.send_into(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/test-message")))
+                .json(&serde_json::json!({ "user_id": user_id.parse::<u64>().unwrap_or_default() })),
         )
         .await
     }

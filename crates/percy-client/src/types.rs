@@ -208,6 +208,9 @@ pub struct Role {
     pub managed: bool,
     pub hoist: bool,
     pub icon_url: Option<String>,
+    /// Percy can give this role out (below its top role, not integration-managed).
+    #[serde(default = "default_true")]
+    pub assignable: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -218,6 +221,9 @@ pub struct Channel {
     pub channel_type: String,
     pub position: i32,
     pub category_id: Option<String>,
+    /// Percy can post an embed in this channel right now.
+    #[serde(default = "default_true")]
+    pub can_post: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -295,6 +301,59 @@ pub struct LevelingConfig {
     pub max_gain: i64,
     #[serde(default = "default_cooldown_per")]
     pub cooldown_per: i64,
+    /// The server's default rank card style: a partial map of preset keys.
+    #[serde(default)]
+    pub card_style: HashMap<String, String>,
+    /// Members may not override the server's card style (the editor is hidden).
+    #[serde(default)]
+    pub card_locked: bool,
+    /// Every preset per field (`theme`, `accent`, `bar`, `font`).
+    #[serde(default)]
+    pub card_options: HashMap<String, Vec<CardOption>>,
+    /// The `{placeholders}` a level-up message may use, in display order.
+    #[serde(default)]
+    pub level_up_variables: Vec<TemplateVariable>,
+}
+
+/// One `{placeholder}` a message template accepts.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TemplateVariable {
+    pub name: String,
+    pub description: String,
+}
+
+/// `{ok, message}` answer of an action that reports what it did in words.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ActionMessage {
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub message: String,
+}
+
+/// One rank card preset as offered by a picker.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CardOption {
+    pub value: String,
+    pub label: String,
+}
+
+/// `GET /users/{id}/rank-card?guild_id=` — a member's rank card style on one server.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RankCard {
+    /// The member's own partial style (`{}` = follow the server).
+    #[serde(default)]
+    pub style: HashMap<String, String>,
+    #[serde(default)]
+    pub guild_default: HashMap<String, String>,
+    /// The server fixes the style; clients hide the editor.
+    #[serde(default)]
+    pub locked: bool,
+    /// The fully resolved style the card renders with.
+    #[serde(default)]
+    pub effective: HashMap<String, String>,
+    #[serde(default)]
+    pub options: HashMap<String, Vec<CardOption>>,
 }
 
 fn default_factor() -> f64 {
@@ -338,6 +397,10 @@ impl Default for LevelingConfig {
             min_gain: default_min_gain(),
             max_gain: default_max_gain(),
             cooldown_per: default_cooldown_per(),
+            card_style: HashMap::new(),
+            card_locked: false,
+            card_options: HashMap::new(),
+            level_up_variables: Vec::new(),
         }
     }
 }
@@ -2741,4 +2804,132 @@ pub struct NewsSource {
 pub struct NewsSourcesResponse {
     #[serde(default)]
     pub sources: Vec<NewsSource>,
+}
+
+// -- Guild health ------------------------------------------------------------
+
+/// `GET /guilds/{id}/health` — whether Percy can do what the server configured.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct GuildHealth {
+    /// Every feature, those needing attention first.
+    #[serde(default)]
+    pub features: Vec<HealthFeature>,
+    /// How many features need attention.
+    #[serde(default)]
+    pub attention: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct HealthFeature {
+    pub key: String,
+    pub label: String,
+    /// `ok` | `attention` | `off`.
+    pub status: String,
+    /// Plain-language problems naming the channel/role and permission.
+    #[serde(default)]
+    pub problems: Vec<String>,
+}
+
+// -- Role menus ----------------------------------------------------------------
+
+/// `GET /guilds/{id}/rolemenus`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct RoleMenusResponse {
+    #[serde(default)]
+    pub menus: Vec<RoleMenu>,
+    #[serde(default)]
+    pub max_roles: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RoleMenu {
+    pub id: i64,
+    pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub unique: bool,
+    /// `None` when the channel was deleted.
+    #[serde(default)]
+    pub channel: Option<ChannelRef>,
+    #[serde(default)]
+    pub jump_url: Option<String>,
+    #[serde(default)]
+    pub roles: Vec<RoleMenuRole>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RoleMenuRole {
+    pub role_id: String,
+    /// `None` when the role was deleted.
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub color: u32,
+    #[serde(default)]
+    pub emoji: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default = "default_true")]
+    pub assignable: bool,
+}
+
+// -- Starboard -----------------------------------------------------------------
+
+/// `GET /guilds/{id}/starboard` — settings plus the ten most-starred messages.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct StarboardInfo {
+    #[serde(default)]
+    pub configured: bool,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub channel: Option<ChannelRef>,
+    #[serde(default)]
+    pub threshold: u32,
+    #[serde(default)]
+    pub emoji: String,
+    #[serde(default)]
+    pub self_star: bool,
+    #[serde(default)]
+    pub ignored_channels: Vec<Option<ChannelRef>>,
+    #[serde(default)]
+    pub max_age_hours: u32,
+    #[serde(default)]
+    pub allow_nsfw: bool,
+    #[serde(default)]
+    pub top: Vec<StarboardTop>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StarboardTop {
+    pub stars: u32,
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub channel: Option<ChannelRef>,
+    pub jump_url: String,
+}
+
+// -- Reminders -----------------------------------------------------------------
+
+/// `GET /users/{id}/reminders`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct RemindersResponse {
+    #[serde(default)]
+    pub reminders: Vec<Reminder>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Reminder {
+    pub id: i64,
+    /// ISO-8601 UTC.
+    pub expires: String,
+    #[serde(default)]
+    pub message: String,
+    /// e.g. "every day"; `None` for a one-off.
+    #[serde(default)]
+    pub repeats: Option<String>,
+    #[serde(default)]
+    pub shared_with: u32,
 }
