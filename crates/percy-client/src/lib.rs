@@ -526,6 +526,22 @@ impl PercyClient {
         .await
     }
 
+    /// `None` channel / role: Percy creates `#verify` / `Unverified`.
+    pub async fn setup_sentinel(
+        &self,
+        guild_id: u64,
+        channel_id: Option<u64>,
+        role_id: Option<u64>,
+        start: bool,
+    ) -> Result<ActionMessage, PercyError> {
+        self.send_into(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/setup/sentinel")))
+                .json(&serde_json::json!({ "channel_id": channel_id, "role_id": role_id, "start": start })),
+        )
+        .await
+    }
+
     // -- Role menus ------------------------------------------------------------
 
     pub async fn get_role_menus(&self, guild_id: u64) -> Result<RoleMenusResponse, PercyError> {
