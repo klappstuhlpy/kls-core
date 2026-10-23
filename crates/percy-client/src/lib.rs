@@ -1217,6 +1217,208 @@ impl PercyClient {
         .await
     }
 
+    // -- Public-API gateway support ------------------------------------------
+    //
+    // These keep Percy's HTTP status (`PercyError::Rejected`) instead of folding it into `Api`, so
+    // the public gateway can map a 400/404/409 onto its own error codes.
+
+    async fn send_api<T: DeserializeOwned>(&self, req: RequestBuilder) -> Result<T, PercyError> {
+        let resp = req.bearer_auth(&self.token).send().await?;
+        let status = resp.status();
+        if status.is_client_error() || status.is_server_error() {
+            let body = resp.text().await.unwrap_or_default();
+            let detail = serde_json::from_str::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|v| v.get("detail").and_then(|d| d.as_str().map(str::to_string)))
+                .unwrap_or(body);
+            return Err(PercyError::Rejected {
+                status: status.as_u16(),
+                detail,
+            });
+        }
+        Ok(resp.json().await?)
+    }
+
+    /// One member's wallet (zero wallet when none exists).
+    pub async fn get_member_balance(&self, guild_id: u64, user_id: u64) -> Result<MemberBalance, PercyError> {
+        self.send_api(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/economy/balances/{user_id}"))),
+        )
+        .await
+    }
+
+    /// Atomically add signed deltas to cash/bank; Percy refuses (400) a result below zero.
+    pub async fn adjust_member_balance(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        cash: i64,
+        bank: i64,
+    ) -> Result<MemberBalance, PercyError> {
+        self.send_api(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/economy/balances/{user_id}/adjust")))
+                .json(&serde_json::json!({"cash": cash, "bank": bank})),
+        )
+        .await
+    }
+
+    /// Set a member's balance (unset fields are left alone).
+    pub async fn set_member_balance(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        cash: Option<i64>,
+        bank: Option<i64>,
+    ) -> Result<serde_json::Value, PercyError> {
+        self.send_api(
+            self.client
+                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/economy/balances/{user_id}")))
+                .json(&serde_json::json!({"cash": cash, "bank": bank})),
+        )
+        .await
+    }
+
+    /// Paged balance leaderboard.
+    pub async fn get_economy_balances_page(
+        &self,
+        guild_id: u64,
+        limit: u32,
+        offset: u32,
+    ) -> Result<BalancesResponse, PercyError> {
+        self.send_api(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/economy/balances")))
+                .query(&[("limit", limit), ("offset", offset)]),
+        )
+        .await
+    }
+
+    /// Shop + settings, with Percy's status preserved.
+    pub async fn get_economy_api(&self, guild_id: u64) -> Result<EconomyInfo, PercyError> {
+        self.send_api(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/economy"))))
+            .await
+    }
+
+    /// Create a shop item; answers `{ok, id}`.
+    pub async fn create_economy_item_api(
+        &self,
+        guild_id: u64,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, PercyError> {
+        self.send_api(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/economy/items")))
+                .json(body),
+        )
+        .await
+    }
+
+    /// Partial item update by id.
+    pub async fn patch_economy_item(
+        &self,
+        guild_id: u64,
+        item_id: u64,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, PercyError> {
+        self.send_api(
+            self.client
+                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/economy/items/{item_id}")))
+                .json(body),
+        )
+        .await
+    }
+
+    /// Delete a shop item by id (inventories cascade).
+    pub async fn delete_economy_item_by_id(
+        &self,
+        guild_id: u64,
+        item_id: u64,
+    ) -> Result<serde_json::Value, PercyError> {
+        self.send_api(
+            self.client
+                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/economy/items/by-id/{item_id}"))),
+        )
+        .await
+    }
+
+    pub async fn get_member_inventory(&self, guild_id: u64, user_id: u64) -> Result<MemberInventory, PercyError> {
+        self.send_api(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/economy/inventory/{user_id}"))),
+        )
+        .await
+    }
+
+    /// Grant items for free (respects the item's `max_per_user`).
+    pub async fn give_member_item(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        item_id: u64,
+        quantity: u32,
+    ) -> Result<InventoryChange, PercyError> {
+        self.send_api(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/economy/inventory/{user_id}")))
+                .json(&serde_json::json!({"item_id": item_id, "quantity": quantity})),
+        )
+        .await
+    }
+
+    /// Take items away; Percy refuses (409) when the member owns fewer.
+    pub async fn take_member_item(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        item_id: u64,
+        quantity: u32,
+    ) -> Result<InventoryChange, PercyError> {
+        self.send_api(
+            self.client
+                .delete(self.url(&format!(
+                    "/api/v1/guilds/{guild_id}/economy/inventory/{user_id}/{item_id}"
+                )))
+                .query(&[("quantity", quantity)]),
+        )
+        .await
+    }
+
+    pub async fn get_member_level(&self, guild_id: u64, user_id: u64) -> Result<MemberLevel, PercyError> {
+        self.send_api(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/users/{user_id}"))),
+        )
+        .await
+    }
+
+    /// Leveling leaderboard page, status preserved.
+    pub async fn get_leveling_leaderboard_page(
+        &self,
+        guild_id: u64,
+        limit: u32,
+        offset: u32,
+    ) -> Result<LeaderboardResponse, PercyError> {
+        self.send_api(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/leaderboard")))
+                .query(&[("limit", limit), ("offset", offset)]),
+        )
+        .await
+    }
+
+    /// Guild metadata, status preserved (404 = Percy is not in that guild).
+    pub async fn get_guild_api(&self, guild_id: u64) -> Result<GuildInfo, PercyError> {
+        self.send_api(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}"))))
+            .await
+    }
+
+    /// Public bot stats.
+    pub async fn get_bot_stats_api(&self) -> Result<BotStats, PercyError> {
+        self.send_api(self.client.get(self.url("/api/v1/bot/stats"))).await
+    }
+
     // -- Economy -------------------------------------------------------------
 
     /// Fetch economy info (shop items + lottery) for a guild.
@@ -2538,6 +2740,10 @@ pub enum PercyError {
     Http(#[from] reqwest::Error),
     #[error("{0}")]
     Api(String),
+    /// A refusal that keeps Percy's HTTP status (only the public-API methods return this), with the
+    /// `detail` text FastAPI sent, so the gateway can map 400/404/409 onto its own error codes.
+    #[error("Percy refused ({status}): {detail}")]
+    Rejected { status: u16, detail: String },
 }
 
 /// Turns a refused decide response into a [`RequestDecision`]: Percy's own envelope when it is

@@ -841,6 +841,33 @@ pub struct CommandInfo {
     /// The per-guild permission override, if an admin has set one.
     #[serde(default)]
     pub permission_override: Option<PermissionOverride>,
+    // -- Fields of `GET /commands/public` (the website's commands page) --
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    /// Hybrid command: also available as a slash command.
+    #[serde(default)]
+    pub slash: bool,
+    #[serde(default)]
+    pub user_permissions: Vec<String>,
+    #[serde(default)]
+    pub bot_permissions: Vec<String>,
+    #[serde(default)]
+    pub cooldown: Option<Cooldown>,
+    #[serde(default)]
+    pub example: Option<String>,
+    /// Full docstring (`description` is only its first line).
+    #[serde(default)]
+    pub help: Option<String>,
+    /// Qualified name of the parent group, if this is a subcommand.
+    #[serde(default)]
+    pub parent: Option<String>,
+}
+
+/// `rate` uses per `per` seconds.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Cooldown {
+    pub rate: u32,
+    pub per: f64,
 }
 
 /// A per-guild override of a command's permission gate. `permissions` is a Discord
@@ -1065,6 +1092,25 @@ pub struct ShopItem {
     pub effect_value: Option<i64>,
     #[serde(default)]
     pub duration_minutes: Option<i64>,
+    // -- Item overhaul fields (absent on older Percy builds) --
+    #[serde(default)]
+    pub emoji: Option<String>,
+    #[serde(default)]
+    pub rarity: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub stock: Option<i64>,
+    #[serde(default)]
+    pub max_per_user: Option<i64>,
+    #[serde(default)]
+    pub required_role_id: Option<String>,
+    #[serde(default)]
+    pub available_until: Option<String>,
+    #[serde(default)]
+    pub remove_role_id: Option<String>,
+    #[serde(default)]
+    pub reply_message: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -3142,4 +3188,66 @@ mod notification_tests {
         let s: RequestSettings = serde_json::from_str(r#"{"channel":null,"role_ids":[],"roles":[]}"#).unwrap();
         assert!(s.channel.is_none() && s.roles.is_empty());
     }
+}
+
+// -- Public-API support types --------------------------------------------------
+
+/// One member's wallet (`GET`/`POST .../economy/balances/{uid}[/adjust]`).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MemberBalance {
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub cash: i64,
+    #[serde(default)]
+    pub bank: i64,
+    #[serde(default)]
+    pub total: i64,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct InventoryItem {
+    pub item_id: u64,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub quantity: i64,
+    #[serde(default)]
+    pub emoji: Option<String>,
+    #[serde(default)]
+    pub rarity: Option<String>,
+    #[serde(default)]
+    pub effect: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MemberInventory {
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub items: Vec<InventoryItem>,
+}
+
+/// Result of giving or taking an item: the member's new quantity.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct InventoryChange {
+    #[serde(default)]
+    pub item_id: u64,
+    #[serde(default)]
+    pub quantity: i64,
+}
+
+/// `GET .../leveling/users/{uid}`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MemberLevel {
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub level: i64,
+    #[serde(default)]
+    pub xp: i64,
+    #[serde(default)]
+    pub messages: i64,
+    #[serde(default)]
+    pub rank: i64,
 }
