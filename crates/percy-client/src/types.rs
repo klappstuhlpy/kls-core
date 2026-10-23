@@ -1111,6 +1111,12 @@ pub struct ShopItem {
     pub remove_role_id: Option<String>,
     #[serde(default)]
     pub reply_message: Option<String>,
+    /// Set for Percy's own catalogue items; those are not editable or deletable from the dashboard.
+    #[serde(default)]
+    pub builtin_key: Option<String>,
+    /// Absent on older Percy builds, where every item is for sale.
+    #[serde(default = "default_true")]
+    pub for_sale: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
