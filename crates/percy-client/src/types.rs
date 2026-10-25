@@ -1423,13 +1423,13 @@ pub struct MusicHistoryItem {
     #[serde(default)]
     pub title: String,
     #[serde(default)]
-    pub author: String,
+    pub author: Option<String>,
     #[serde(default)]
     pub uri: Option<String>,
     #[serde(default)]
     pub artwork: Option<String>,
     #[serde(default)]
-    pub length_ms: u64,
+    pub length_ms: Option<u64>,
     #[serde(default)]
     pub user_id: Option<String>,
     #[serde(default)]
@@ -1447,13 +1447,13 @@ pub struct TopTrack {
     #[serde(default)]
     pub title: String,
     #[serde(default)]
-    pub author: String,
+    pub author: Option<String>,
     #[serde(default)]
     pub uri: Option<String>,
     #[serde(default)]
     pub artwork: Option<String>,
     #[serde(default)]
-    pub length_ms: u64,
+    pub length_ms: Option<u64>,
     #[serde(default)]
     pub plays: u64,
 }
@@ -1522,6 +1522,14 @@ mod music_app_tests {
         assert!(serde_json::from_str::<MusicSearch>("{}").unwrap().results.is_empty());
         assert!(!serde_json::from_str::<MusicPlayResult>("{}").unwrap().started);
         assert!(serde_json::from_str::<MusicHistory>("{}").unwrap().items.is_empty());
+    }
+
+    #[test]
+    fn null_author_and_length_tolerated() {
+        let h: MusicHistory = serde_json::from_str(r#"{"items":[{"title":"T","author":null,"length_ms":null}]}"#).unwrap();
+        assert!(h.items[0].author.is_none() && h.items[0].length_ms.is_none());
+        let l: UserMusicLibrary = serde_json::from_str(r#"{"top_tracks":[{"title":"T","author":null,"length_ms":null,"plays":1}]}"#).unwrap();
+        assert!(l.top_tracks[0].author.is_none() && l.top_tracks[0].length_ms.is_none());
     }
 
     #[test]
