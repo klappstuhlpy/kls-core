@@ -1599,6 +1599,25 @@ impl PercyClient {
         .await
     }
 
+    /// Equalizer and every audio filter of the live player (defaults with `active: false` when idle).
+    pub async fn get_music_audio(&self, guild_id: u64) -> Result<MusicAudio, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/audio"))),
+        )
+        .await
+    }
+
+    /// Apply an effect / fine values / reset on behalf of a viewer (`user_id` in the body); 403 when not permitted.
+    pub async fn set_music_audio(&self, guild_id: u64, body: &serde_json::Value) -> Result<MusicAudio, PercyError> {
+        self.send_into(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/music/audio")))
+                .json(body),
+        )
+        .await
+    }
+
     /// What `user_id` may do with the guild's player (role, DJ rules, voice channels).
     pub async fn get_music_viewer(&self, guild_id: u64, user_id: u64) -> Result<MusicViewer, PercyError> {
         self.send_into(

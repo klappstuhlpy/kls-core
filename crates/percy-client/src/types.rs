@@ -1382,6 +1382,29 @@ pub struct MusicChannelRef {
     pub name: String,
 }
 
+/// Equalizer + filters (`GET`/`POST /music/audio`). `filters` stays free-form JSON: the panel reads it directly.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicAudio {
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub equalizer: MusicEqualizer,
+    #[serde(default)]
+    pub filters: serde_json::Value,
+    #[serde(default)]
+    pub effects: Vec<String>,
+    #[serde(default)]
+    pub presets: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicEqualizer {
+    #[serde(default)]
+    pub preset: Option<String>,
+    #[serde(default)]
+    pub bands: Vec<f64>,
+}
+
 /// What one viewer may do with a guild's player (`GET /music/viewer`).
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct MusicViewer {
@@ -1503,6 +1526,14 @@ mod music_app_tests {
     use super::*;
 
     #[test]
+    fn audio_parses_and_defaults() {
+        let a: MusicAudio = serde_json::from_str(r#"{"active":true,"equalizer":{"preset":"pop","bands":[0.1,0.2]},"filters":{"timescale":{"speed":1.25}},"effects":["nightcore"],"presets":{"equalizer":["flat"],"filters":["8d"]}}"#).unwrap();
+        assert!(a.active && a.equalizer.preset.as_deref() == Some("pop") && a.effects == ["nightcore"]);
+        let d: MusicAudio = serde_json::from_str("{}").unwrap();
+        assert!(!d.active && d.equalizer.bands.is_empty() && d.effects.is_empty());
+    }
+
+    #[test]
     fn viewer_parses_and_defaults() {
         let v: MusicViewer = serde_json::from_str(r#"{"role":"dj","can_start":true,"can_control":true,"can_destroy":false,"is_manager":false,"dj_mode":1,"voice_channel":{"id":"5","name":"Music"},"bot_channel":null}"#).unwrap();
         assert!(v.can_start && v.voice_channel.unwrap().name == "Music" && v.bot_channel.is_none());
@@ -1526,9 +1557,11 @@ mod music_app_tests {
 
     #[test]
     fn null_author_and_length_tolerated() {
-        let h: MusicHistory = serde_json::from_str(r#"{"items":[{"title":"T","author":null,"length_ms":null}]}"#).unwrap();
+        let h: MusicHistory =
+            serde_json::from_str(r#"{"items":[{"title":"T","author":null,"length_ms":null}]}"#).unwrap();
         assert!(h.items[0].author.is_none() && h.items[0].length_ms.is_none());
-        let l: UserMusicLibrary = serde_json::from_str(r#"{"top_tracks":[{"title":"T","author":null,"length_ms":null,"plays":1}]}"#).unwrap();
+        let l: UserMusicLibrary =
+            serde_json::from_str(r#"{"top_tracks":[{"title":"T","author":null,"length_ms":null,"plays":1}]}"#).unwrap();
         assert!(l.top_tracks[0].author.is_none() && l.top_tracks[0].length_ms.is_none());
     }
 
