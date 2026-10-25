@@ -1599,6 +1599,90 @@ impl PercyClient {
         .await
     }
 
+    /// What `user_id` may do with the guild's player (role, DJ rules, voice channels).
+    pub async fn get_music_viewer(&self, guild_id: u64, user_id: u64) -> Result<MusicViewer, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/viewer")))
+                .query(&[("user_id", user_id)]),
+        )
+        .await
+    }
+
+    /// Search tracks for the music app's search box.
+    pub async fn search_music(&self, guild_id: u64, q: &str, limit: u8) -> Result<MusicSearch, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/search")))
+                .query(&[("q", q.to_string()), ("limit", limit.to_string())]),
+        )
+        .await
+    }
+
+    /// Queue `query` for `user_id`; Percy starts a player in their voice channel when none runs.
+    pub async fn play_music(&self, guild_id: u64, user_id: u64, query: &str) -> Result<MusicPlayResult, PercyError> {
+        self.send_into(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/music/play")))
+                .json(&serde_json::json!({ "user_id": user_id, "query": query })),
+        )
+        .await
+    }
+
+    /// Recently played tracks in a guild; `before` is the last `played_at` seen.
+    pub async fn get_music_history(
+        &self,
+        guild_id: u64,
+        limit: u32,
+        before: Option<&str>,
+    ) -> Result<MusicHistory, PercyError> {
+        let mut query = vec![("limit", limit.to_string())];
+        if let Some(b) = before {
+            query.push(("before", b.to_string()));
+        }
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/history")))
+                .query(&query),
+        )
+        .await
+    }
+
+    /// A user's music library: top tracks, recent plays, liked songs, playlists.
+    pub async fn get_user_music(&self, user_id: u64) -> Result<UserMusicLibrary, PercyError> {
+        self.send_into(self.client.get(self.url(&format!("/api/v1/users/{user_id}/music"))))
+            .await
+    }
+
+    /// Add a track to the user's liked songs (idempotent).
+    pub async fn like_track(&self, user_id: u64, name: &str, url: &str) -> Result<(), PercyError> {
+        self.send_unit(
+            self.client
+                .post(self.url(&format!("/api/v1/users/{user_id}/music/liked")))
+                .json(&serde_json::json!({ "name": name, "url": url })),
+        )
+        .await
+    }
+
+    /// Remove a track from the user's liked songs.
+    pub async fn unlike_track(&self, user_id: u64, url: &str) -> Result<(), PercyError> {
+        self.send_unit(
+            self.client
+                .delete(self.url(&format!("/api/v1/users/{user_id}/music/liked")))
+                .query(&[("url", url)]),
+        )
+        .await
+    }
+
+    /// One of the user's playlists with its tracks (404 if it isn't theirs).
+    pub async fn get_user_playlist(&self, user_id: u64, playlist_id: &str) -> Result<PlaylistDetail, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/users/{user_id}/music/playlists/{playlist_id}"))),
+        )
+        .await
+    }
+
     // -- Comics --------------------------------------------------------------
 
     /// Fetch comic feeds for a guild.

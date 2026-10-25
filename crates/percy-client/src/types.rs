@@ -1371,6 +1371,177 @@ pub struct MusicSetupResponse {
     pub channel_name: String,
 }
 
+/// A track as Percy's `_serialize_track` sends it; the live queue uses the same shape.
+pub type MusicTrack = QueueTrack;
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicChannelRef {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+/// What one viewer may do with a guild's player (`GET /music/viewer`).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicViewer {
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub can_start: bool,
+    #[serde(default)]
+    pub can_control: bool,
+    #[serde(default)]
+    pub can_destroy: bool,
+    #[serde(default)]
+    pub is_manager: bool,
+    #[serde(default)]
+    pub dj_mode: u8,
+    #[serde(default)]
+    pub voice_channel: Option<MusicChannelRef>,
+    #[serde(default)]
+    pub bot_channel: Option<MusicChannelRef>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicSearch {
+    #[serde(default)]
+    pub results: Vec<MusicTrack>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicPlayResult {
+    #[serde(default)]
+    pub queued: Vec<MusicTrack>,
+    #[serde(default)]
+    pub started: bool,
+}
+
+/// One `music_plays` row (guild history and a user's recent plays).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicHistoryItem {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub uri: Option<String>,
+    #[serde(default)]
+    pub artwork: Option<String>,
+    #[serde(default)]
+    pub length_ms: u64,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub played_at: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicHistory {
+    #[serde(default)]
+    pub items: Vec<MusicHistoryItem>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct TopTrack {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub uri: Option<String>,
+    #[serde(default)]
+    pub artwork: Option<String>,
+    #[serde(default)]
+    pub length_ms: u64,
+    #[serde(default)]
+    pub plays: u64,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct PlaylistTrack {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct PlaylistSummary {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub track_count: u32,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct PlaylistDetail {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub tracks: Vec<PlaylistTrack>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct UserMusicLibrary {
+    #[serde(default)]
+    pub top_tracks: Vec<TopTrack>,
+    #[serde(default)]
+    pub recent: Vec<MusicHistoryItem>,
+    #[serde(default)]
+    pub liked: Vec<PlaylistTrack>,
+    #[serde(default)]
+    pub playlists: Vec<PlaylistSummary>,
+}
+
+#[cfg(test)]
+mod music_app_tests {
+    use super::*;
+
+    #[test]
+    fn viewer_parses_and_defaults() {
+        let v: MusicViewer = serde_json::from_str(r#"{"role":"dj","can_start":true,"can_control":true,"can_destroy":false,"is_manager":false,"dj_mode":1,"voice_channel":{"id":"5","name":"Music"},"bot_channel":null}"#).unwrap();
+        assert!(v.can_start && v.voice_channel.unwrap().name == "Music" && v.bot_channel.is_none());
+        let d: MusicViewer = serde_json::from_str("{}").unwrap();
+        assert!(!d.can_control && d.role.is_empty());
+    }
+
+    #[test]
+    fn search_play_history_parse() {
+        let t = r#"{"title":"T","author":"A","uri":"u","artwork":null,"duration":1000,"is_stream":false,"source":"youtube","requester":null,"autoplay":false}"#;
+        let s: MusicSearch = serde_json::from_str(&format!(r#"{{"results":[{t}]}}"#)).unwrap();
+        assert_eq!(s.results[0].title, "T");
+        let p: MusicPlayResult = serde_json::from_str(&format!(r#"{{"queued":[{t}],"started":true}}"#)).unwrap();
+        assert!(p.started && p.queued.len() == 1);
+        let h: MusicHistory = serde_json::from_str(r#"{"items":[{"title":"T","author":"A","uri":null,"artwork":null,"length_ms":5,"user_id":"9","played_at":"2026-10-25T10:00:00"}]}"#).unwrap();
+        assert_eq!(h.items[0].user_id.as_deref(), Some("9"));
+        assert!(serde_json::from_str::<MusicSearch>("{}").unwrap().results.is_empty());
+        assert!(!serde_json::from_str::<MusicPlayResult>("{}").unwrap().started);
+        assert!(serde_json::from_str::<MusicHistory>("{}").unwrap().items.is_empty());
+    }
+
+    #[test]
+    fn library_and_playlist_parse() {
+        let l: UserMusicLibrary = serde_json::from_str(r#"{"top_tracks":[{"title":"T","author":"A","uri":"u","artwork":null,"length_ms":5,"plays":3}],"recent":[],"liked":[{"name":"n","url":"u"}],"playlists":[{"id":"7","name":"P","track_count":2}]}"#).unwrap();
+        assert_eq!(
+            (l.top_tracks[0].plays, l.liked.len(), l.playlists[0].track_count),
+            (3, 1, 2)
+        );
+        assert!(serde_json::from_str::<UserMusicLibrary>("{}")
+            .unwrap()
+            .playlists
+            .is_empty());
+        let d: PlaylistDetail =
+            serde_json::from_str(r#"{"id":"7","name":"P","tracks":[{"name":"n","url":"u"}]}"#).unwrap();
+        assert_eq!(d.tracks[0].url, "u");
+        assert!(serde_json::from_str::<PlaylistDetail>("{}").unwrap().tracks.is_empty());
+    }
+}
+
 // -- Comics types ------------------------------------------------------------
 
 #[derive(Debug, Deserialize, Serialize)]
