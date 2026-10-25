@@ -1619,12 +1619,26 @@ impl PercyClient {
         .await
     }
 
-    /// Queue `query` for `user_id`; Percy starts a player in their voice channel when none runs.
-    pub async fn play_music(&self, guild_id: u64, user_id: u64, query: &str) -> Result<MusicPlayResult, PercyError> {
+    /// Queue `query` for `user_id` (`limit` > 1 queues a mix of the top results); Percy starts a player in their voice channel when none runs.
+    pub async fn play_music(
+        &self,
+        guild_id: u64,
+        user_id: u64,
+        query: &str,
+        limit: Option<u8>,
+        play_now: bool,
+    ) -> Result<MusicPlayResult, PercyError> {
+        let mut body = serde_json::json!({ "user_id": user_id, "query": query });
+        if let Some(n) = limit {
+            body["limit"] = n.into();
+        }
+        if play_now {
+            body["play_now"] = true.into();
+        }
         self.send_into(
             self.client
                 .post(self.url(&format!("/api/v1/guilds/{guild_id}/music/play")))
-                .json(&serde_json::json!({ "user_id": user_id, "query": query })),
+                .json(&body),
         )
         .await
     }
