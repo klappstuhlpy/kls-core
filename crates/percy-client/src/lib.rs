@@ -1710,6 +1710,15 @@ impl PercyClient {
         .await
     }
 
+    /// The week's most-picked tracks in a guild and across every guild.
+    pub async fn get_music_trending(&self, guild_id: u64) -> Result<MusicTrending, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/trending"))),
+        )
+        .await
+    }
+
     /// A user's music library: top tracks, recent plays, liked songs, playlists.
     pub async fn get_user_music(&self, user_id: u64) -> Result<UserMusicLibrary, PercyError> {
         self.send_into(self.client.get(self.url(&format!("/api/v1/users/{user_id}/music"))))

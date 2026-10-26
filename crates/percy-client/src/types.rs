@@ -16,6 +16,9 @@ pub struct UserGuild {
     /// an older Percy that only returned manageable guilds.
     #[serde(default)]
     pub manageable: bool,
+    /// Percy has a track loaded in this guild (playing or paused).
+    #[serde(default)]
+    pub music_playing: bool,
 }
 
 /// A user's *current* avatar, resolved live from the bot (never persisted, so it
@@ -1593,6 +1596,34 @@ pub struct PlaylistDetail {
     pub cover: Option<String>,
     #[serde(default)]
     pub tracks: Vec<PlaylistTrack>,
+}
+
+/// One chart entry: a track and how many different people picked it (and how often).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct TrendingTrack {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub uri: Option<String>,
+    #[serde(default)]
+    pub artwork: Option<String>,
+    #[serde(default)]
+    pub length_ms: Option<u64>,
+    #[serde(default)]
+    pub listeners: u32,
+    #[serde(default)]
+    pub plays: u32,
+}
+
+/// `GET .../music/trending`: this guild's chart and the one across every guild.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicTrending {
+    #[serde(default)]
+    pub server: Vec<TrendingTrack>,
+    #[serde(default)]
+    pub global: Vec<TrendingTrack>,
 }
 
 /// A track to save: what the dashboard knows about it at the moment it is liked or added.
