@@ -1558,6 +1558,11 @@ pub struct PlaylistTrack {
     pub name: String,
     #[serde(default)]
     pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Saved cover, or one Percy recovered (last play's artwork, the YouTube thumbnail).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artwork: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -1568,6 +1573,12 @@ pub struct PlaylistSummary {
     pub name: String,
     #[serde(default)]
     pub track_count: u32,
+    /// The owner's custom cover, if they set one.
+    #[serde(default)]
+    pub thumbnail: Option<String>,
+    /// What to show: the custom cover, else the first song's.
+    #[serde(default)]
+    pub cover: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -1577,7 +1588,31 @@ pub struct PlaylistDetail {
     #[serde(default)]
     pub name: String,
     #[serde(default)]
+    pub thumbnail: Option<String>,
+    #[serde(default)]
+    pub cover: Option<String>,
+    #[serde(default)]
     pub tracks: Vec<PlaylistTrack>,
+}
+
+/// A track to save: what the dashboard knows about it at the moment it is liked or added.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SaveTrack {
+    pub name: String,
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artwork: Option<String>,
+}
+
+/// `PATCH .../music/playlists/{id}`: `None` leaves a field alone; an empty thumbnail clears it.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct PlaylistPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

@@ -1717,11 +1717,11 @@ impl PercyClient {
     }
 
     /// Add a track to the user's liked songs (idempotent).
-    pub async fn like_track(&self, user_id: u64, name: &str, url: &str) -> Result<(), PercyError> {
+    pub async fn like_track(&self, user_id: u64, track: &SaveTrack) -> Result<(), PercyError> {
         self.send_unit(
             self.client
                 .post(self.url(&format!("/api/v1/users/{user_id}/music/liked")))
-                .json(&serde_json::json!({ "name": name, "url": url })),
+                .json(track),
         )
         .await
     }
@@ -1741,6 +1741,70 @@ impl PercyClient {
         self.send_into(
             self.client
                 .get(self.url(&format!("/api/v1/users/{user_id}/music/playlists/{playlist_id}"))),
+        )
+        .await
+    }
+
+    /// Create an empty playlist (409 if the user already has one with that name).
+    pub async fn create_user_playlist(&self, user_id: u64, name: &str) -> Result<PlaylistSummary, PercyError> {
+        self.send_into(
+            self.client
+                .post(self.url(&format!("/api/v1/users/{user_id}/music/playlists")))
+                .json(&serde_json::json!({ "name": name })),
+        )
+        .await
+    }
+
+    /// Rename a playlist and/or set its cover; returns the playlist as it now is.
+    pub async fn update_user_playlist(
+        &self,
+        user_id: u64,
+        playlist_id: &str,
+        patch: &PlaylistPatch,
+    ) -> Result<PlaylistDetail, PercyError> {
+        self.send_into(
+            self.client
+                .patch(self.url(&format!("/api/v1/users/{user_id}/music/playlists/{playlist_id}")))
+                .json(patch),
+        )
+        .await
+    }
+
+    /// Delete a playlist and its tracks (Liked Songs cannot be deleted).
+    pub async fn delete_user_playlist(&self, user_id: u64, playlist_id: &str) -> Result<(), PercyError> {
+        self.send_unit(
+            self.client
+                .delete(self.url(&format!("/api/v1/users/{user_id}/music/playlists/{playlist_id}"))),
+        )
+        .await
+    }
+
+    /// Add a track to a playlist; a track already in it is left alone.
+    pub async fn add_user_playlist_track(
+        &self,
+        user_id: u64,
+        playlist_id: &str,
+        track: &SaveTrack,
+    ) -> Result<(), PercyError> {
+        self.send_unit(
+            self.client
+                .post(self.url(&format!("/api/v1/users/{user_id}/music/playlists/{playlist_id}/tracks")))
+                .json(track),
+        )
+        .await
+    }
+
+    /// Remove every copy of `url` from a playlist.
+    pub async fn remove_user_playlist_track(
+        &self,
+        user_id: u64,
+        playlist_id: &str,
+        url: &str,
+    ) -> Result<(), PercyError> {
+        self.send_unit(
+            self.client
+                .delete(self.url(&format!("/api/v1/users/{user_id}/music/playlists/{playlist_id}/tracks")))
+                .query(&[("url", url)]),
         )
         .await
     }
