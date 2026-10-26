@@ -1638,6 +1638,35 @@ impl PercyClient {
         .await
     }
 
+    /// An artist's top tracks and the releases they belong to (`url` is the source's artist link, when known).
+    pub async fn get_music_artist(
+        &self,
+        guild_id: u64,
+        name: &str,
+        url: Option<&str>,
+    ) -> Result<MusicArtist, PercyError> {
+        let mut q = vec![("name", name.to_string())];
+        if let Some(u) = url {
+            q.push(("url", u.to_string()));
+        }
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/artist")))
+                .query(&q),
+        )
+        .await
+    }
+
+    /// An album/single/playlist link as a header plus its tracks.
+    pub async fn get_music_album(&self, guild_id: u64, url: &str) -> Result<MusicAlbum, PercyError> {
+        self.send_into(
+            self.client
+                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/album")))
+                .query(&[("url", url)]),
+        )
+        .await
+    }
+
     /// Queue `query` for `user_id` (`limit` > 1 queues a mix of the top results); Percy starts a player in their voice channel when none runs.
     pub async fn play_music(
         &self,

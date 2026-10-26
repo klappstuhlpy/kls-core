@@ -1282,6 +1282,12 @@ pub struct QueueTrack {
     /// True for wavelink autoplay recommendations queued after the manual queue.
     #[serde(default)]
     pub autoplay: bool,
+    /// Link to the (first) artist's page at the source; None for sources without one.
+    #[serde(default)]
+    pub artist_url: Option<String>,
+    /// The track's album, None when the source (e.g. YouTube) has none.
+    #[serde(default)]
+    pub album: Option<TrackLink>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -1433,6 +1439,71 @@ pub struct MusicSearch {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicArtistInfo {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub artwork: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+/// An album or single in an artist's releases; `year`/`track_count` are None when Lavalink gives none.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicRelease {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub year: Option<u32>,
+    #[serde(default)]
+    pub artwork: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub track_count: Option<u32>,
+}
+
+/// `GET /music/artist`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicArtist {
+    #[serde(default)]
+    pub artist: MusicArtistInfo,
+    #[serde(default)]
+    pub top_tracks: Vec<MusicTrack>,
+    #[serde(default)]
+    pub releases: Vec<MusicRelease>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicAlbumInfo {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub year: Option<u32>,
+    #[serde(default)]
+    pub artists: Vec<String>,
+    #[serde(default)]
+    pub artwork: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub total_ms: u64,
+}
+
+/// `GET /music/album`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MusicAlbum {
+    #[serde(default)]
+    pub album: MusicAlbumInfo,
+    #[serde(default)]
+    pub tracks: Vec<MusicTrack>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct MusicPlayResult {
     #[serde(default)]
     pub queued: Vec<MusicTrack>,
@@ -1553,6 +1624,25 @@ mod music_app_tests {
         assert!(serde_json::from_str::<MusicSearch>("{}").unwrap().results.is_empty());
         assert!(!serde_json::from_str::<MusicPlayResult>("{}").unwrap().started);
         assert!(serde_json::from_str::<MusicHistory>("{}").unwrap().items.is_empty());
+    }
+
+    #[test]
+    fn artist_and_album_parse() {
+        let t = r#"{"title":"T","author":"A","artist_url":"https://x.test/a","album":{"name":"Al","url":null}}"#;
+        let a: MusicArtist = serde_json::from_str(&format!(
+            r#"{{"artist":{{"name":"A","artwork":null,"url":null}},"top_tracks":[{t}],"releases":[{{"title":"Al","kind":"single","year":null,"artwork":"a","url":"u","track_count":null}}]}}"#
+        ))
+        .unwrap();
+        assert_eq!(a.top_tracks[0].album.as_ref().unwrap().name, "Al");
+        assert_eq!(a.top_tracks[0].artist_url.as_deref(), Some("https://x.test/a"));
+        assert_eq!(a.releases[0].kind, "single");
+        let b: MusicAlbum = serde_json::from_str(&format!(
+            r#"{{"album":{{"title":"Al","artists":["A"],"total_ms":5}},"tracks":[{t}]}}"#
+        ))
+        .unwrap();
+        assert_eq!(b.album.total_ms, 5);
+        assert!(serde_json::from_str::<MusicArtist>("{}").unwrap().releases.is_empty());
+        assert!(serde_json::from_str::<MusicAlbum>("{}").unwrap().tracks.is_empty());
     }
 
     #[test]
