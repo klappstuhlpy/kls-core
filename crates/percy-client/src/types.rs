@@ -710,6 +710,10 @@ pub struct PollInfo {
     pub ended: bool,
     #[serde(default)]
     pub total_votes: u32,
+    #[serde(default)]
+    pub hide_results: bool,
+    #[serde(default)]
+    pub role_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -734,6 +738,12 @@ pub struct GiveawayInfo {
     #[serde(default)]
     pub ended: bool,
     pub ends_at: Option<String>,
+    #[serde(default)]
+    pub required_role_id: Option<String>,
+    #[serde(default)]
+    pub min_account_days: u32,
+    #[serde(default)]
+    pub min_join_days: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1854,6 +1864,8 @@ pub struct CaseEntry {
     pub moderator_name: Option<String>,
     pub reason: Option<String>,
     pub created_at: Option<String>,
+    #[serde(default)]
+    pub pardoned: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -3624,4 +3636,24 @@ pub struct MemberLevel {
     pub messages: i64,
     #[serde(default)]
     pub rank: i64,
+}
+
+// -- Warn policy types ---------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct WarnThreshold {
+    pub warn_count: u32,
+    pub action: String,
+    #[serde(default)]
+    pub duration_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WarnPolicy {
+    #[serde(default)]
+    pub expiry_days: Option<u32>,
+    #[serde(default)]
+    pub thresholds: Vec<WarnThreshold>,
+    #[serde(default)]
+    pub actions: Vec<String>,
 }

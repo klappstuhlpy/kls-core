@@ -965,6 +965,14 @@ impl PercyClient {
             }
         }
 
+        if fields.get("hide_results").and_then(|v| v.as_bool()).unwrap_or(false) {
+            form = form.text("hide_results", "true");
+        }
+        let role = str_field(fields, "role_id");
+        if !role.is_empty() {
+            form = form.text("role_id", role);
+        }
+
         // Optional inline banner image.
         if let Some((data, mime)) = image {
             let ext = mime.rsplit('/').next().unwrap_or("png");
@@ -2204,6 +2212,62 @@ impl PercyClient {
             self.client
                 .delete(self.url(&format!("/api/v1/guilds/{guild_id}/cases/{case_index}")))
                 .query(&[("moderator_id", moderator_id)]),
+        )
+        .await
+    }
+
+    /// Pardon a warn case (Percy deactivates it for the warn-threshold count).
+    pub async fn pardon_case(
+        &self,
+        guild_id: u64,
+        case_index: u64,
+        moderator_id: &str,
+    ) -> Result<serde_json::Value, PercyError> {
+        self.send_into(
+            self.client
+                .post(self.url(&format!("/api/v1/guilds/{guild_id}/cases/{case_index}/pardon")))
+                .json(&serde_json::json!({"moderator_id": moderator_id})),
+        )
+        .await
+    }
+
+    /// Fetch the guild's warn policy (expiry + escalation thresholds).
+    pub async fn get_warn_policy(&self, guild_id: u64) -> Result<WarnPolicy, PercyError> {
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/warn-policy"))))
+            .await
+    }
+
+    /// Set (or clear with `None`) warn expiry in days.
+    pub async fn set_warn_expiry(&self, guild_id: u64, expiry_days: Option<u32>) -> Result<WarnPolicy, PercyError> {
+        self.send_into(
+            self.client
+                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/warn-policy")))
+                .json(&serde_json::json!({"expiry_days": expiry_days})),
+        )
+        .await
+    }
+
+    /// Add or replace the escalation rule for `warn_count`.
+    pub async fn put_warn_threshold(
+        &self,
+        guild_id: u64,
+        warn_count: u32,
+        action: &str,
+        duration_seconds: Option<u64>,
+    ) -> Result<WarnPolicy, PercyError> {
+        self.send_into(
+            self.client
+                .put(self.url(&format!("/api/v1/guilds/{guild_id}/warn-policy/thresholds/{warn_count}")))
+                .json(&serde_json::json!({"action": action, "duration_seconds": duration_seconds})),
+        )
+        .await
+    }
+
+    /// Remove the escalation rule for `warn_count`.
+    pub async fn delete_warn_threshold(&self, guild_id: u64, warn_count: u32) -> Result<(), PercyError> {
+        self.send_unit(
+            self.client
+                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/warn-policy/thresholds/{warn_count}"))),
         )
         .await
     }
