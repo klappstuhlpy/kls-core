@@ -103,7 +103,6 @@ fn worker_unavailable() -> rusqlite::Error {
 
 enum Message {
     Call(SqliteCall),
-    Terminate,
 }
 
 /// Builder to help open a database connection.
@@ -451,14 +450,12 @@ impl Database {
 
 impl Drop for Database {
     fn drop(&mut self) {
-        trace!("sending terminate message to all database connections");
-
-        for worker in &self.workers {
-            if !worker.is_finished() {
-                // Ignore error because the only error happens if both sides are disconnected
-                let _ = self.sender.send(Message::Terminate);
-            }
-        }
+        // Close the channel instead of counting out one `Terminate` per worker: dropping the
+        // only `Sender` disconnects it, so every worker's `recv()` returns `Err` once the queue
+        // drains and the loop ends. A broadcast cannot be "consumed" by the wrong worker, which
+        // the per-worker message could (a worker left blocked forever made `join` below hang).
+        let (closed, _) = crossbeam_channel::unbounded();
+        drop(std::mem::replace(&mut self.sender, closed));
 
         debug!("shutting down all database connections...");
         for worker in &mut self.workers {
@@ -521,7 +518,6 @@ impl Worker {
                                 );
                             }
                         }
-                        Message::Terminate => break,
                     }
                 }
             })
@@ -681,6 +677,31 @@ mod tests {
                 name: row.get("name")?,
                 age: row.get("age")?,
             })
+        }
+    }
+
+    /// Regression: dropping a pool used to hang forever now and then (a worker never saw its
+    /// `Terminate`, so `join` blocked). Many pools opened and dropped in parallel must all
+    /// finish; a watchdog fails the test instead of letting it freeze the run.
+    #[test]
+    fn parallel_open_and_drop_never_hangs() {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                thread::spawn(|| {
+                    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                    for _ in 0..25 {
+                        rt.block_on(async {
+                            let db = Database::file(":memory:").connections(4).open().await.unwrap();
+                            db.execute_batch("SELECT 1;").await.unwrap();
+                        });
+                    }
+                })
+            })
+            .collect();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !handles.iter().all(|h| h.is_finished()) {
+            assert!(std::time::Instant::now() < deadline, "a pool drop hung");
+            thread::sleep(std::time::Duration::from_millis(20));
         }
     }
 
