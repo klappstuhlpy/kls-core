@@ -26,6 +26,20 @@ pub struct PercyClient {
     token: String,
 }
 
+/// Percent-encode one value as a single URL path segment: anything outside the
+/// RFC 3986 unreserved set (slash, backslash, `?`, `#`, `%`, `.`, spaces...) is escaped.
+/// Without this a caller-supplied id like `../../guilds/9/x` re-routes the request.
+fn seg(v: &impl std::fmt::Display) -> String {
+    let mut out = String::new();
+    for b in v.to_string().bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 impl PercyClient {
     /// Creates a new client from a base URL and bearer token. The base URL has
     /// any trailing slash trimmed so path joins stay canonical. Callers that
@@ -88,7 +102,7 @@ impl PercyClient {
         }
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/notifications")))
+                .get(self.url(&format!("/api/v1/guilds/{}/notifications", seg(&guild_id))))
                 .query(&query),
         )
         .await
@@ -102,7 +116,7 @@ impl PercyClient {
     ) -> Result<NotificationSummary, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/notifications/summary")))
+                .get(self.url(&format!("/api/v1/guilds/{}/notifications/summary", seg(&guild_id))))
                 .query(&[("user_id", user_id)]),
         )
         .await
@@ -121,7 +135,7 @@ impl PercyClient {
             .map_or_else(|_| serde_json::Value::from(up_to_id), serde_json::Value::from);
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/notifications/read")))
+                .post(self.url(&format!("/api/v1/guilds/{}/notifications/read", seg(&guild_id))))
                 .json(&serde_json::json!({ "user_id": user_id, "up_to_id": up_to })),
         )
         .await
@@ -136,7 +150,7 @@ impl PercyClient {
     ) -> Result<ActionRequestList, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/requests")))
+                .get(self.url(&format!("/api/v1/guilds/{}/requests", seg(&guild_id))))
                 .query(&[("status", status.to_string()), ("limit", limit.to_string())]),
         )
         .await
@@ -155,7 +169,7 @@ impl PercyClient {
     ) -> Result<RequestDecision, PercyError> {
         let req = self
             .client
-            .post(self.url(&format!("/api/v1/guilds/{guild_id}/requests/{request_id}/decide")))
+            .post(self.url(&format!("/api/v1/guilds/{}/requests/{}/decide", seg(&guild_id), seg(&request_id))))
             .json(&serde_json::json!({
                 "moderator_id": moderator_id,
                 "decision": if approve { "approve" } else { "deny" },
@@ -174,7 +188,7 @@ impl PercyClient {
     pub async fn get_request_settings(&self, guild_id: u64) -> Result<RequestSettings, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/requests/settings"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/requests/settings", seg(&guild_id)))),
         )
         .await
     }
@@ -187,7 +201,7 @@ impl PercyClient {
     ) -> Result<RequestSettings, PercyError> {
         self.send_into(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/requests/settings")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/requests/settings", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -197,7 +211,7 @@ impl PercyClient {
 
     /// Fetch full guild config + metadata from Percy.
     pub async fn get_guild(&self, guild_id: u64) -> Result<GuildInfo, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}", seg(&guild_id)))))
             .await
     }
 
@@ -205,7 +219,7 @@ impl PercyClient {
     pub async fn patch_guild_config(&self, guild_id: u64, patch: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/config")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/config", seg(&guild_id))))
                 .json(patch),
         )
         .await
@@ -219,7 +233,7 @@ impl PercyClient {
     ) -> Result<BatchResponse, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/batch")))
+                .post(self.url(&format!("/api/v1/guilds/{}/batch", seg(&guild_id))))
                 .json(&serde_json::json!({"operations": operations})),
         )
         .await
@@ -229,7 +243,7 @@ impl PercyClient {
     pub async fn patch_ai_flags(&self, guild_id: u64, patch: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/ai")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/ai", seg(&guild_id))))
                 .json(patch),
         )
         .await
@@ -244,7 +258,7 @@ impl PercyClient {
     ) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .put(self.url(&format!("/api/v1/guilds/{guild_id}/ai/overrides/{channel_id}")))
+                .put(self.url(&format!("/api/v1/guilds/{}/ai/overrides/{}", seg(&guild_id), seg(&channel_id))))
                 .json(body),
         )
         .await
@@ -254,7 +268,7 @@ impl PercyClient {
     pub async fn delete_ai_override(&self, guild_id: u64, channel_id: u64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/ai/overrides/{channel_id}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/ai/overrides/{}", seg(&guild_id), seg(&channel_id)))),
         )
         .await
     }
@@ -265,7 +279,7 @@ impl PercyClient {
     pub async fn ai_ask(&self, guild_id: u64, question: &str) -> Result<AiAskResponse, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/ai/ask")))
+                .post(self.url(&format!("/api/v1/guilds/{}/ai/ask", seg(&guild_id))))
                 .json(&serde_json::json!({ "question": question })),
         )
         .await
@@ -279,7 +293,7 @@ impl PercyClient {
     ) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/audit-log-flags")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/audit-log-flags", seg(&guild_id))))
                 .json(flags),
         )
         .await
@@ -287,7 +301,7 @@ impl PercyClient {
 
     /// Fetch guild roles.
     pub async fn get_guild_roles(&self, guild_id: u64) -> Result<Vec<Role>, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/roles"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}/roles", seg(&guild_id)))))
             .await
     }
 
@@ -295,7 +309,7 @@ impl PercyClient {
     pub async fn get_guild_channels(&self, guild_id: u64) -> Result<Vec<Channel>, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/channels"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/channels", seg(&guild_id)))),
         )
         .await
     }
@@ -304,7 +318,7 @@ impl PercyClient {
     pub async fn get_user_guilds(&self, discord_user_id: &str) -> Result<Vec<UserGuild>, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/users/{discord_user_id}/guilds"))),
+                .get(self.url(&format!("/api/v1/users/{}/guilds", seg(&discord_user_id)))),
         )
         .await
     }
@@ -314,7 +328,7 @@ impl PercyClient {
     pub async fn get_user_avatar(&self, discord_user_id: &str) -> Result<UserAvatar, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/users/{discord_user_id}/avatar"))),
+                .get(self.url(&format!("/api/v1/users/{}/avatar", seg(&discord_user_id)))),
         )
         .await
     }
@@ -337,7 +351,7 @@ impl PercyClient {
         }
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/members")))
+                .get(self.url(&format!("/api/v1/guilds/{}/members", seg(&guild_id))))
                 .query(&query),
         )
         .await
@@ -361,7 +375,7 @@ impl PercyClient {
         }
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/members/{user_id}/action")))
+                .post(self.url(&format!("/api/v1/guilds/{}/members/{}/action", seg(&guild_id), seg(&user_id))))
                 .json(&body),
         )
         .await
@@ -381,7 +395,7 @@ impl PercyClient {
     ) -> Result<serde_json::Value, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/members/{user_id}/action")))
+                .post(self.url(&format!("/api/v1/guilds/{}/members/{}/action", seg(&guild_id), seg(&user_id))))
                 .json(body),
         )
         .await
@@ -396,7 +410,7 @@ impl PercyClient {
     ) -> Result<MemberMessages, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/members/{user_id}/messages")))
+                .get(self.url(&format!("/api/v1/guilds/{}/members/{}/messages", seg(&guild_id), seg(&user_id))))
                 .query(&[("limit", limit.to_string())]),
         )
         .await
@@ -416,7 +430,7 @@ impl PercyClient {
         let body = serde_json::json!({"add": add, "remove": remove, "moderator_id": moderator_id});
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/members/{user_id}/roles")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/members/{}/roles", seg(&guild_id), seg(&user_id))))
                 .json(&body),
         )
         .await
@@ -426,7 +440,7 @@ impl PercyClient {
     pub async fn get_member_detail(&self, guild_id: u64, user_id: &str) -> Result<MemberDetail, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/members/{user_id}/detail"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/members/{}/detail", seg(&guild_id), seg(&user_id)))),
         )
         .await
     }
@@ -435,7 +449,7 @@ impl PercyClient {
     pub async fn get_member_self(&self, guild_id: u64, user_id: &str) -> Result<MemberSelf, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/members/{user_id}/self"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/members/{}/self", seg(&guild_id), seg(&user_id)))),
         )
         .await
     }
@@ -443,7 +457,7 @@ impl PercyClient {
     pub async fn get_user_settings(&self, discord_id: &str) -> Result<UserSettings, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/users/{discord_id}/settings"))),
+                .get(self.url(&format!("/api/v1/users/{}/settings", seg(&discord_id)))),
         )
         .await
     }
@@ -451,7 +465,7 @@ impl PercyClient {
     pub async fn patch_user_settings(&self, discord_id: &str, patch: &UserSettingsPatch) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/users/{discord_id}/settings")))
+                .patch(self.url(&format!("/api/v1/users/{}/settings", seg(&discord_id))))
                 .json(patch),
         )
         .await
@@ -461,7 +475,7 @@ impl PercyClient {
     pub async fn get_rank_card(&self, discord_id: &str, guild_id: u64) -> Result<RankCard, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/users/{discord_id}/rank-card")))
+                .get(self.url(&format!("/api/v1/users/{}/rank-card", seg(&discord_id))))
                 .query(&[("guild_id", guild_id.to_string())]),
         )
         .await
@@ -475,7 +489,7 @@ impl PercyClient {
     ) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .put(self.url(&format!("/api/v1/users/{discord_id}/rank-card")))
+                .put(self.url(&format!("/api/v1/users/{}/rank-card", seg(&discord_id))))
                 .json(&serde_json::json!({ "style": style })),
         )
         .await
@@ -490,7 +504,7 @@ impl PercyClient {
     ) -> Result<Vec<u8>, PercyError> {
         let req = self
             .client
-            .post(self.url(&format!("/api/v1/users/{discord_id}/rank-card/preview")))
+            .post(self.url(&format!("/api/v1/users/{}/rank-card/preview", seg(&discord_id))))
             .json(&serde_json::json!({ "guild_id": guild_id, "style": style }));
         let resp = Self::check(req.bearer_auth(&self.token).send().await?).await?;
         Ok(resp.bytes().await?.to_vec())
@@ -505,7 +519,7 @@ impl PercyClient {
     ) -> Result<AvatarHistoryResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/members/{user_id}/avatars")))
+                .get(self.url(&format!("/api/v1/guilds/{}/members/{}/avatars", seg(&guild_id), seg(&user_id))))
                 .query(&[("limit", limit.to_string())]),
         )
         .await
@@ -515,7 +529,7 @@ impl PercyClient {
     pub async fn get_user_history(&self, discord_id: &str) -> Result<UserHistory, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/users/{discord_id}/history"))),
+                .get(self.url(&format!("/api/v1/users/{}/history", seg(&discord_id)))),
         )
         .await
     }
@@ -524,7 +538,7 @@ impl PercyClient {
     pub async fn export_user_data(&self, discord_id: &str) -> Result<serde_json::Value, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/users/{discord_id}/data-export"))),
+                .get(self.url(&format!("/api/v1/users/{}/data-export", seg(&discord_id)))),
         )
         .await
     }
@@ -533,7 +547,7 @@ impl PercyClient {
     pub async fn delete_user_personal_data(&self, discord_id: &str) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/users/{discord_id}/personal-data"))),
+                .delete(self.url(&format!("/api/v1/users/{}/personal-data", seg(&discord_id)))),
         )
         .await
     }
@@ -544,7 +558,7 @@ impl PercyClient {
     pub async fn get_sentinel(&self, guild_id: u64) -> Result<Option<SentinelInfo>, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/sentinel"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/sentinel", seg(&guild_id)))),
         )
         .await
     }
@@ -555,7 +569,7 @@ impl PercyClient {
         let saved: SentinelSaved = self
             .send_into(
                 self.client
-                    .patch(self.url(&format!("/api/v1/guilds/{guild_id}/sentinel")))
+                    .patch(self.url(&format!("/api/v1/guilds/{}/sentinel", seg(&guild_id))))
                     .json(patch),
             )
             .await?;
@@ -580,7 +594,7 @@ impl PercyClient {
         let sent: SentinelSaved = self
             .send_into(
                 self.client
-                    .post(self.url(&format!("/api/v1/guilds/{guild_id}/sentinel/message")))
+                    .post(self.url(&format!("/api/v1/guilds/{}/sentinel/message", seg(&guild_id))))
                     .json(&body),
             )
             .await?;
@@ -591,7 +605,7 @@ impl PercyClient {
     pub async fn toggle_sentinel(&self, guild_id: u64, enabled: bool) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/sentinel/toggle")))
+                .post(self.url(&format!("/api/v1/guilds/{}/sentinel/toggle", seg(&guild_id))))
                 .json(&serde_json::json!({"enabled": enabled})),
         )
         .await
@@ -601,7 +615,7 @@ impl PercyClient {
 
     /// Per-feature health: can Percy post/assign where this server configured it to (live, uncached).
     pub async fn get_guild_health(&self, guild_id: u64) -> Result<GuildHealth, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/health"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}/health", seg(&guild_id)))))
             .await
     }
 
@@ -615,7 +629,7 @@ impl PercyClient {
     ) -> Result<ActionMessage, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/setup/logging")))
+                .post(self.url(&format!("/api/v1/guilds/{}/setup/logging", seg(&guild_id))))
                 .json(&serde_json::json!({ "channel_id": channel_id, "logs": logs })),
         )
         .await
@@ -626,7 +640,7 @@ impl PercyClient {
     pub async fn send_test_message(&self, guild_id: u64, feature: &str) -> Result<ActionMessage, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/test-message")))
+                .post(self.url(&format!("/api/v1/guilds/{}/test-message", seg(&guild_id))))
                 .json(&serde_json::json!({ "feature": feature })),
         )
         .await
@@ -641,7 +655,7 @@ impl PercyClient {
     ) -> Result<ActionMessage, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/setup/leveling")))
+                .post(self.url(&format!("/api/v1/guilds/{}/setup/leveling", seg(&guild_id))))
                 .json(&serde_json::json!({ "level_up_channel": level_up_channel, "preset_roles": preset_roles })),
         )
         .await
@@ -657,7 +671,7 @@ impl PercyClient {
     ) -> Result<ActionMessage, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/setup/sentinel")))
+                .post(self.url(&format!("/api/v1/guilds/{}/setup/sentinel", seg(&guild_id))))
                 .json(&serde_json::json!({ "channel_id": channel_id, "role_id": role_id, "start": start })),
         )
         .await
@@ -668,7 +682,7 @@ impl PercyClient {
     pub async fn get_role_menus(&self, guild_id: u64) -> Result<RoleMenusResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/rolemenus"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/rolemenus", seg(&guild_id)))),
         )
         .await
     }
@@ -677,7 +691,7 @@ impl PercyClient {
     pub async fn create_role_menu(&self, guild_id: u64, body: &serde_json::Value) -> Result<ActionMessage, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/rolemenus")))
+                .post(self.url(&format!("/api/v1/guilds/{}/rolemenus", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -692,7 +706,7 @@ impl PercyClient {
     ) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/rolemenus/{menu_id}")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/rolemenus/{}", seg(&guild_id), seg(&menu_id))))
                 .json(body),
         )
         .await
@@ -707,23 +721,21 @@ impl PercyClient {
     ) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/rolemenus/{menu_id}/roles")))
+                .post(self.url(&format!("/api/v1/guilds/{}/rolemenus/{}/roles", seg(&guild_id), seg(&menu_id))))
                 .json(body),
         )
         .await
     }
 
     pub async fn remove_role_menu_role(&self, guild_id: u64, menu_id: i64, role_id: u64) -> Result<(), PercyError> {
-        self.send_unit(self.client.delete(self.url(&format!(
-            "/api/v1/guilds/{guild_id}/rolemenus/{menu_id}/roles/{role_id}"
-        ))))
+        self.send_unit(self.client.delete(self.url(&format!("/api/v1/guilds/{}/rolemenus/{}/roles/{}", seg(&guild_id), seg(&menu_id), seg(&role_id)))))
         .await
     }
 
     pub async fn delete_role_menu(&self, guild_id: u64, menu_id: i64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/rolemenus/{menu_id}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/rolemenus/{}", seg(&guild_id), seg(&menu_id)))),
         )
         .await
     }
@@ -733,7 +745,7 @@ impl PercyClient {
     pub async fn get_starboard(&self, guild_id: u64) -> Result<StarboardInfo, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/starboard"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/starboard", seg(&guild_id)))),
         )
         .await
     }
@@ -741,7 +753,7 @@ impl PercyClient {
     pub async fn patch_starboard(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/starboard")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/starboard", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -750,7 +762,7 @@ impl PercyClient {
     // -- AutoMod presets -------------------------------------------------------
 
     pub async fn get_automod(&self, guild_id: u64) -> Result<AutoModInfo, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/automod"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}/automod", seg(&guild_id)))))
             .await
     }
 
@@ -763,7 +775,7 @@ impl PercyClient {
     ) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .put(self.url(&format!("/api/v1/guilds/{guild_id}/automod/{preset}")))
+                .put(self.url(&format!("/api/v1/guilds/{}/automod/{}", seg(&guild_id), seg(&preset))))
                 .json(body),
         )
         .await
@@ -781,7 +793,7 @@ impl PercyClient {
     ) -> Result<ActionMessage, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/tags")))
+                .post(self.url(&format!("/api/v1/guilds/{}/tags", seg(&guild_id))))
                 .json(&serde_json::json!({
                     "name": name, "content": content, "owner_id": owner_id.parse::<u64>().unwrap_or_default(),
                 })),
@@ -793,7 +805,7 @@ impl PercyClient {
     pub async fn edit_tag(&self, guild_id: u64, tag_id: i64, content: &str) -> Result<ActionMessage, PercyError> {
         self.send_into(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/tags/{tag_id}")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/tags/{}", seg(&guild_id), seg(&tag_id))))
                 .json(&serde_json::json!({ "content": content })),
         )
         .await
@@ -804,7 +816,7 @@ impl PercyClient {
     pub async fn get_user_reminders(&self, discord_id: &str) -> Result<RemindersResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/users/{discord_id}/reminders"))),
+                .get(self.url(&format!("/api/v1/users/{}/reminders", seg(&discord_id)))),
         )
         .await
     }
@@ -812,7 +824,7 @@ impl PercyClient {
     pub async fn delete_user_reminder(&self, discord_id: &str, reminder_id: i64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/users/{discord_id}/reminders/{reminder_id}"))),
+                .delete(self.url(&format!("/api/v1/users/{}/reminders/{}", seg(&discord_id), seg(&reminder_id)))),
         )
         .await
     }
@@ -821,7 +833,7 @@ impl PercyClient {
     pub async fn get_leveling_config(&self, guild_id: u64) -> Result<LevelingConfig, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/config"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/leveling/config", seg(&guild_id)))),
         )
         .await
     }
@@ -830,7 +842,7 @@ impl PercyClient {
     pub async fn send_level_up_test(&self, guild_id: u64, user_id: &str) -> Result<ActionMessage, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/test-message")))
+                .post(self.url(&format!("/api/v1/guilds/{}/leveling/test-message", seg(&guild_id))))
                 .json(&serde_json::json!({ "user_id": user_id.parse::<u64>().unwrap_or_default() })),
         )
         .await
@@ -840,7 +852,7 @@ impl PercyClient {
     pub async fn get_leveling_leaderboard(&self, guild_id: u64, limit: u32) -> Result<LeaderboardResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/leaderboard")))
+                .get(self.url(&format!("/api/v1/guilds/{}/leveling/leaderboard", seg(&guild_id))))
                 .query(&[("limit", limit.to_string())]),
         )
         .await
@@ -850,7 +862,7 @@ impl PercyClient {
     pub async fn get_leveling_xp_history(&self, guild_id: u64, days: u32) -> Result<XpHistoryResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/xp-history")))
+                .get(self.url(&format!("/api/v1/guilds/{}/leveling/xp-history", seg(&guild_id))))
                 .query(&[("days", days.to_string())]),
         )
         .await
@@ -865,7 +877,7 @@ impl PercyClient {
     ) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/users/{user_id}")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/leveling/users/{}", seg(&guild_id), seg(&user_id))))
                 .json(patch),
         )
         .await
@@ -875,7 +887,7 @@ impl PercyClient {
     pub async fn patch_leveling_config(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/config")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/leveling/config", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -885,7 +897,7 @@ impl PercyClient {
     pub async fn post_leveling_roles(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/roles")))
+                .post(self.url(&format!("/api/v1/guilds/{}/leveling/roles", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -895,7 +907,7 @@ impl PercyClient {
     pub async fn create_leveling_role_preset(&self, guild_id: u64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/roles/preset"))),
+                .post(self.url(&format!("/api/v1/guilds/{}/leveling/roles/preset", seg(&guild_id)))),
         )
         .await
     }
@@ -904,7 +916,7 @@ impl PercyClient {
     pub async fn post_leveling_multipliers(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/multipliers")))
+                .post(self.url(&format!("/api/v1/guilds/{}/leveling/multipliers", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -914,7 +926,7 @@ impl PercyClient {
     pub async fn post_leveling_blacklist(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/blacklist")))
+                .post(self.url(&format!("/api/v1/guilds/{}/leveling/blacklist", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -924,7 +936,7 @@ impl PercyClient {
 
     /// Fetch polls for a guild.
     pub async fn get_polls(&self, guild_id: u64) -> Result<PollsResponse, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/polls"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}/polls", seg(&guild_id)))))
             .await
     }
 
@@ -985,7 +997,7 @@ impl PercyClient {
 
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/polls")))
+                .post(self.url(&format!("/api/v1/guilds/{}/polls", seg(&guild_id))))
                 .multipart(form),
         )
         .await
@@ -995,7 +1007,7 @@ impl PercyClient {
     pub async fn patch_poll(&self, guild_id: u64, poll_id: i64, patch: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/polls/{poll_id}")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/polls/{}", seg(&guild_id), seg(&poll_id))))
                 .json(patch),
         )
         .await
@@ -1005,7 +1017,7 @@ impl PercyClient {
     pub async fn end_poll(&self, guild_id: u64, poll_id: i64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/polls/{poll_id}/end"))),
+                .post(self.url(&format!("/api/v1/guilds/{}/polls/{}/end", seg(&guild_id), seg(&poll_id)))),
         )
         .await
     }
@@ -1016,7 +1028,7 @@ impl PercyClient {
     pub async fn get_giveaways(&self, guild_id: u64) -> Result<GiveawaysResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/giveaways"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/giveaways", seg(&guild_id)))),
         )
         .await
     }
@@ -1030,7 +1042,7 @@ impl PercyClient {
     ) -> Result<serde_json::Value, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/giveaways")))
+                .post(self.url(&format!("/api/v1/guilds/{}/giveaways", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1040,7 +1052,7 @@ impl PercyClient {
     pub async fn end_giveaway(&self, guild_id: u64, giveaway_id: i64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/giveaways/{giveaway_id}/end"))),
+                .post(self.url(&format!("/api/v1/guilds/{}/giveaways/{}/end", seg(&guild_id), seg(&giveaway_id)))),
         )
         .await
     }
@@ -1049,14 +1061,14 @@ impl PercyClient {
     pub async fn delete_giveaway(&self, guild_id: u64, giveaway_id: i64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/giveaways/{giveaway_id}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/giveaways/{}", seg(&guild_id), seg(&giveaway_id)))),
         )
         .await
     }
 
     /// Fetch tags for a guild.
     pub async fn get_tags(&self, guild_id: u64) -> Result<TagsResponse, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/tags"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}/tags", seg(&guild_id)))))
             .await
     }
 
@@ -1064,7 +1076,7 @@ impl PercyClient {
     pub async fn get_tag_detail(&self, guild_id: u64, tag_id: i64) -> Result<TagDetail, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/tags/{tag_id}"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/tags/{}", seg(&guild_id), seg(&tag_id)))),
         )
         .await
     }
@@ -1073,7 +1085,7 @@ impl PercyClient {
     pub async fn delete_tag(&self, guild_id: u64, tag_id: i64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/tags/{tag_id}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/tags/{}", seg(&guild_id), seg(&tag_id)))),
         )
         .await
     }
@@ -1082,7 +1094,7 @@ impl PercyClient {
     pub async fn export_tags(&self, guild_id: u64) -> Result<TagExport, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/tags/export"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/tags/export", seg(&guild_id)))),
         )
         .await
     }
@@ -1096,7 +1108,7 @@ impl PercyClient {
     ) -> Result<TagImportResult, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/tags/import")))
+                .post(self.url(&format!("/api/v1/guilds/{}/tags/import", seg(&guild_id))))
                 .json(&serde_json::json!({"tags": tags, "owner_id": owner_id})),
         )
         .await
@@ -1108,7 +1120,7 @@ impl PercyClient {
     pub async fn get_commands(&self, guild_id: u64) -> Result<CommandsResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/commands"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/commands", seg(&guild_id)))),
         )
         .await
     }
@@ -1117,7 +1129,7 @@ impl PercyClient {
     pub async fn toggle_command(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/commands/toggle")))
+                .post(self.url(&format!("/api/v1/guilds/{}/commands/toggle", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1127,7 +1139,7 @@ impl PercyClient {
     pub async fn manage_plonk(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/plonks")))
+                .post(self.url(&format!("/api/v1/guilds/{}/plonks", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1138,7 +1150,7 @@ impl PercyClient {
     pub async fn set_command_permissions(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/commands/permissions")))
+                .post(self.url(&format!("/api/v1/guilds/{}/commands/permissions", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1148,7 +1160,7 @@ impl PercyClient {
 
     /// Fetch guild stats.
     pub async fn get_guild_stats(&self, guild_id: u64) -> Result<GuildStats, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/stats"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}/stats", seg(&guild_id)))))
             .await
     }
 
@@ -1167,7 +1179,7 @@ impl PercyClient {
     pub async fn get_guild_overview(&self, guild_id: u64) -> Result<GuildOverview, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/overview"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/overview", seg(&guild_id)))),
         )
         .await
     }
@@ -1186,7 +1198,7 @@ impl PercyClient {
     pub async fn get_autoresponders(&self, guild_id: u64) -> Result<AutorespondersResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/autoresponders"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/autoresponders", seg(&guild_id)))),
         )
         .await
     }
@@ -1195,7 +1207,7 @@ impl PercyClient {
     pub async fn create_autoresponder(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/autoresponders")))
+                .post(self.url(&format!("/api/v1/guilds/{}/autoresponders", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1205,7 +1217,7 @@ impl PercyClient {
     pub async fn delete_autoresponder(&self, guild_id: u64, trigger: &str) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/autoresponders/{trigger}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/autoresponders/{}", seg(&guild_id), seg(&trigger)))),
         )
         .await
     }
@@ -1219,7 +1231,7 @@ impl PercyClient {
     ) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/autoresponders/{trigger}")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/autoresponders/{}", seg(&guild_id), seg(&trigger))))
                 .json(body),
         )
         .await
@@ -1251,7 +1263,7 @@ impl PercyClient {
     pub async fn get_member_balance(&self, guild_id: u64, user_id: u64) -> Result<MemberBalance, PercyError> {
         self.send_api(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/economy/balances/{user_id}"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/economy/balances/{}", seg(&guild_id), seg(&user_id)))),
         )
         .await
     }
@@ -1266,7 +1278,7 @@ impl PercyClient {
     ) -> Result<MemberBalance, PercyError> {
         self.send_api(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/economy/balances/{user_id}/adjust")))
+                .post(self.url(&format!("/api/v1/guilds/{}/economy/balances/{}/adjust", seg(&guild_id), seg(&user_id))))
                 .json(&serde_json::json!({"cash": cash, "bank": bank})),
         )
         .await
@@ -1282,7 +1294,7 @@ impl PercyClient {
     ) -> Result<serde_json::Value, PercyError> {
         self.send_api(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/economy/balances/{user_id}")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/economy/balances/{}", seg(&guild_id), seg(&user_id))))
                 .json(&serde_json::json!({"cash": cash, "bank": bank})),
         )
         .await
@@ -1297,7 +1309,7 @@ impl PercyClient {
     ) -> Result<BalancesResponse, PercyError> {
         self.send_api(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/economy/balances")))
+                .get(self.url(&format!("/api/v1/guilds/{}/economy/balances", seg(&guild_id))))
                 .query(&[("limit", limit), ("offset", offset)]),
         )
         .await
@@ -1305,7 +1317,7 @@ impl PercyClient {
 
     /// Shop + settings, with Percy's status preserved.
     pub async fn get_economy_api(&self, guild_id: u64) -> Result<EconomyInfo, PercyError> {
-        self.send_api(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/economy"))))
+        self.send_api(self.client.get(self.url(&format!("/api/v1/guilds/{}/economy", seg(&guild_id)))))
             .await
     }
 
@@ -1317,7 +1329,7 @@ impl PercyClient {
     ) -> Result<serde_json::Value, PercyError> {
         self.send_api(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/economy/items")))
+                .post(self.url(&format!("/api/v1/guilds/{}/economy/items", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1332,7 +1344,7 @@ impl PercyClient {
     ) -> Result<serde_json::Value, PercyError> {
         self.send_api(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/economy/items/{item_id}")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/economy/items/{}", seg(&guild_id), seg(&item_id))))
                 .json(body),
         )
         .await
@@ -1346,7 +1358,7 @@ impl PercyClient {
     ) -> Result<serde_json::Value, PercyError> {
         self.send_api(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/economy/items/by-id/{item_id}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/economy/items/by-id/{}", seg(&guild_id), seg(&item_id)))),
         )
         .await
     }
@@ -1354,7 +1366,7 @@ impl PercyClient {
     pub async fn get_member_inventory(&self, guild_id: u64, user_id: u64) -> Result<MemberInventory, PercyError> {
         self.send_api(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/economy/inventory/{user_id}"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/economy/inventory/{}", seg(&guild_id), seg(&user_id)))),
         )
         .await
     }
@@ -1369,7 +1381,7 @@ impl PercyClient {
     ) -> Result<InventoryChange, PercyError> {
         self.send_api(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/economy/inventory/{user_id}")))
+                .post(self.url(&format!("/api/v1/guilds/{}/economy/inventory/{}", seg(&guild_id), seg(&user_id))))
                 .json(&serde_json::json!({"item_id": item_id, "quantity": quantity})),
         )
         .await
@@ -1385,9 +1397,7 @@ impl PercyClient {
     ) -> Result<InventoryChange, PercyError> {
         self.send_api(
             self.client
-                .delete(self.url(&format!(
-                    "/api/v1/guilds/{guild_id}/economy/inventory/{user_id}/{item_id}"
-                )))
+                .delete(self.url(&format!("/api/v1/guilds/{}/economy/inventory/{}/{}", seg(&guild_id), seg(&user_id), seg(&item_id))))
                 .query(&[("quantity", quantity)]),
         )
         .await
@@ -1396,7 +1406,7 @@ impl PercyClient {
     pub async fn get_member_level(&self, guild_id: u64, user_id: u64) -> Result<MemberLevel, PercyError> {
         self.send_api(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/users/{user_id}"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/leveling/users/{}", seg(&guild_id), seg(&user_id)))),
         )
         .await
     }
@@ -1410,7 +1420,7 @@ impl PercyClient {
     ) -> Result<LeaderboardResponse, PercyError> {
         self.send_api(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/leveling/leaderboard")))
+                .get(self.url(&format!("/api/v1/guilds/{}/leveling/leaderboard", seg(&guild_id))))
                 .query(&[("limit", limit), ("offset", offset)]),
         )
         .await
@@ -1418,7 +1428,7 @@ impl PercyClient {
 
     /// Guild metadata, status preserved (404 = Percy is not in that guild).
     pub async fn get_guild_api(&self, guild_id: u64) -> Result<GuildInfo, PercyError> {
-        self.send_api(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}"))))
+        self.send_api(self.client.get(self.url(&format!("/api/v1/guilds/{}", seg(&guild_id)))))
             .await
     }
 
@@ -1431,7 +1441,7 @@ impl PercyClient {
 
     /// Fetch economy info (shop items + lottery) for a guild.
     pub async fn get_economy(&self, guild_id: u64) -> Result<EconomyInfo, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/economy"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}/economy", seg(&guild_id)))))
             .await
     }
 
@@ -1439,7 +1449,7 @@ impl PercyClient {
     pub async fn create_economy_item(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/economy/items")))
+                .post(self.url(&format!("/api/v1/guilds/{}/economy/items", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1449,7 +1459,7 @@ impl PercyClient {
     pub async fn delete_economy_item(&self, guild_id: u64, name: &str) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/economy/items/{name}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/economy/items/{}", seg(&guild_id), seg(&name)))),
         )
         .await
     }
@@ -1458,7 +1468,7 @@ impl PercyClient {
     pub async fn get_economy_balances(&self, guild_id: u64, limit: u32) -> Result<BalancesResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/economy/balances")))
+                .get(self.url(&format!("/api/v1/guilds/{}/economy/balances", seg(&guild_id))))
                 .query(&[("limit", limit.to_string())]),
         )
         .await
@@ -1468,7 +1478,7 @@ impl PercyClient {
     pub async fn patch_economy_settings(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/economy/settings")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/economy/settings", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1476,7 +1486,7 @@ impl PercyClient {
 
     /// Guild-wide game statistics (per-game totals + top players).
     pub async fn get_games_stats(&self, guild_id: u64) -> Result<GamesStats, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/games"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}/games", seg(&guild_id)))))
             .await
     }
 
@@ -1489,7 +1499,7 @@ impl PercyClient {
     ) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/economy/balances/{user_id}")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/economy/balances/{}", seg(&guild_id), seg(&user_id))))
                 .json(body),
         )
         .await
@@ -1499,7 +1509,7 @@ impl PercyClient {
     pub async fn create_lottery(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/economy/lottery")))
+                .post(self.url(&format!("/api/v1/guilds/{}/economy/lottery", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1509,7 +1519,7 @@ impl PercyClient {
     pub async fn delete_lottery(&self, guild_id: u64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/economy/lottery"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/economy/lottery", seg(&guild_id)))),
         )
         .await
     }
@@ -1518,7 +1528,7 @@ impl PercyClient {
 
     /// Fetch music/equalizer state for a guild.
     pub async fn get_music(&self, guild_id: u64) -> Result<MusicInfo, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/music"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}/music", seg(&guild_id)))))
             .await
     }
 
@@ -1526,7 +1536,7 @@ impl PercyClient {
     pub async fn get_music_lyrics(&self, guild_id: u64) -> Result<MusicLyrics, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/lyrics"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/music/lyrics", seg(&guild_id)))),
         )
         .await
     }
@@ -1535,7 +1545,7 @@ impl PercyClient {
     pub async fn post_music_equalizer(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/music/equalizer")))
+                .post(self.url(&format!("/api/v1/guilds/{}/music/equalizer", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1545,7 +1555,7 @@ impl PercyClient {
     pub async fn post_music_filters(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/music/filters")))
+                .post(self.url(&format!("/api/v1/guilds/{}/music/filters", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1559,7 +1569,7 @@ impl PercyClient {
     ) -> Result<MusicSetupResponse, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/music/setup")))
+                .post(self.url(&format!("/api/v1/guilds/{}/music/setup", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1569,7 +1579,7 @@ impl PercyClient {
     pub async fn post_music_reset(&self, guild_id: u64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/music/reset")))
+                .post(self.url(&format!("/api/v1/guilds/{}/music/reset", seg(&guild_id))))
                 .json(&serde_json::json!({})),
         )
         .await
@@ -1579,7 +1589,7 @@ impl PercyClient {
     pub async fn post_music_247(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/music/247")))
+                .post(self.url(&format!("/api/v1/guilds/{}/music/247", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1589,7 +1599,7 @@ impl PercyClient {
     pub async fn patch_music_dj_mode(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/music/dj-mode")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/music/dj-mode", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1601,7 +1611,7 @@ impl PercyClient {
     pub async fn music_control(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/music/control")))
+                .post(self.url(&format!("/api/v1/guilds/{}/music/control", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1611,7 +1621,7 @@ impl PercyClient {
     pub async fn get_music_audio(&self, guild_id: u64) -> Result<MusicAudio, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/audio"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/music/audio", seg(&guild_id)))),
         )
         .await
     }
@@ -1620,7 +1630,7 @@ impl PercyClient {
     pub async fn set_music_audio(&self, guild_id: u64, body: &serde_json::Value) -> Result<MusicAudio, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/music/audio")))
+                .post(self.url(&format!("/api/v1/guilds/{}/music/audio", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1630,7 +1640,7 @@ impl PercyClient {
     pub async fn get_music_viewer(&self, guild_id: u64, user_id: u64) -> Result<MusicViewer, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/viewer")))
+                .get(self.url(&format!("/api/v1/guilds/{}/music/viewer", seg(&guild_id))))
                 .query(&[("user_id", user_id)]),
         )
         .await
@@ -1640,7 +1650,7 @@ impl PercyClient {
     pub async fn search_music(&self, guild_id: u64, q: &str, limit: u8) -> Result<MusicSearch, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/search")))
+                .get(self.url(&format!("/api/v1/guilds/{}/music/search", seg(&guild_id))))
                 .query(&[("q", q.to_string()), ("limit", limit.to_string())]),
         )
         .await
@@ -1659,7 +1669,7 @@ impl PercyClient {
         }
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/artist")))
+                .get(self.url(&format!("/api/v1/guilds/{}/music/artist", seg(&guild_id))))
                 .query(&q),
         )
         .await
@@ -1669,7 +1679,7 @@ impl PercyClient {
     pub async fn get_music_album(&self, guild_id: u64, url: &str) -> Result<MusicAlbum, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/album")))
+                .get(self.url(&format!("/api/v1/guilds/{}/music/album", seg(&guild_id))))
                 .query(&[("url", url)]),
         )
         .await
@@ -1693,7 +1703,7 @@ impl PercyClient {
         }
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/music/play")))
+                .post(self.url(&format!("/api/v1/guilds/{}/music/play", seg(&guild_id))))
                 .json(&body),
         )
         .await
@@ -1712,7 +1722,7 @@ impl PercyClient {
         }
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/history")))
+                .get(self.url(&format!("/api/v1/guilds/{}/music/history", seg(&guild_id))))
                 .query(&query),
         )
         .await
@@ -1722,14 +1732,14 @@ impl PercyClient {
     pub async fn get_music_trending(&self, guild_id: u64) -> Result<MusicTrending, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/music/trending"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/music/trending", seg(&guild_id)))),
         )
         .await
     }
 
     /// A user's music library: top tracks, recent plays, liked songs, playlists.
     pub async fn get_user_music(&self, user_id: u64) -> Result<UserMusicLibrary, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/users/{user_id}/music"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/users/{}/music", seg(&user_id)))))
             .await
     }
 
@@ -1737,7 +1747,7 @@ impl PercyClient {
     pub async fn like_track(&self, user_id: u64, track: &SaveTrack) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/users/{user_id}/music/liked")))
+                .post(self.url(&format!("/api/v1/users/{}/music/liked", seg(&user_id))))
                 .json(track),
         )
         .await
@@ -1747,7 +1757,7 @@ impl PercyClient {
     pub async fn unlike_track(&self, user_id: u64, url: &str) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/users/{user_id}/music/liked")))
+                .delete(self.url(&format!("/api/v1/users/{}/music/liked", seg(&user_id))))
                 .query(&[("url", url)]),
         )
         .await
@@ -1757,7 +1767,7 @@ impl PercyClient {
     pub async fn get_user_playlist(&self, user_id: u64, playlist_id: &str) -> Result<PlaylistDetail, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/users/{user_id}/music/playlists/{playlist_id}"))),
+                .get(self.url(&format!("/api/v1/users/{}/music/playlists/{}", seg(&user_id), seg(&playlist_id)))),
         )
         .await
     }
@@ -1766,7 +1776,7 @@ impl PercyClient {
     pub async fn create_user_playlist(&self, user_id: u64, name: &str) -> Result<PlaylistSummary, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/users/{user_id}/music/playlists")))
+                .post(self.url(&format!("/api/v1/users/{}/music/playlists", seg(&user_id))))
                 .json(&serde_json::json!({ "name": name })),
         )
         .await
@@ -1781,7 +1791,7 @@ impl PercyClient {
     ) -> Result<PlaylistDetail, PercyError> {
         self.send_into(
             self.client
-                .patch(self.url(&format!("/api/v1/users/{user_id}/music/playlists/{playlist_id}")))
+                .patch(self.url(&format!("/api/v1/users/{}/music/playlists/{}", seg(&user_id), seg(&playlist_id))))
                 .json(patch),
         )
         .await
@@ -1791,7 +1801,7 @@ impl PercyClient {
     pub async fn delete_user_playlist(&self, user_id: u64, playlist_id: &str) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/users/{user_id}/music/playlists/{playlist_id}"))),
+                .delete(self.url(&format!("/api/v1/users/{}/music/playlists/{}", seg(&user_id), seg(&playlist_id)))),
         )
         .await
     }
@@ -1805,7 +1815,7 @@ impl PercyClient {
     ) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/users/{user_id}/music/playlists/{playlist_id}/tracks")))
+                .post(self.url(&format!("/api/v1/users/{}/music/playlists/{}/tracks", seg(&user_id), seg(&playlist_id))))
                 .json(track),
         )
         .await
@@ -1820,7 +1830,7 @@ impl PercyClient {
     ) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/users/{user_id}/music/playlists/{playlist_id}/tracks")))
+                .delete(self.url(&format!("/api/v1/users/{}/music/playlists/{}/tracks", seg(&user_id), seg(&playlist_id))))
                 .query(&[("url", url)]),
         )
         .await
@@ -1830,7 +1840,7 @@ impl PercyClient {
 
     /// Fetch comic feeds for a guild.
     pub async fn get_comics(&self, guild_id: u64) -> Result<ComicsResponse, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/comics"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}/comics", seg(&guild_id)))))
             .await
     }
 
@@ -1838,7 +1848,7 @@ impl PercyClient {
     pub async fn create_comic(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/comics")))
+                .post(self.url(&format!("/api/v1/guilds/{}/comics", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -1848,7 +1858,7 @@ impl PercyClient {
     pub async fn patch_comic(&self, guild_id: u64, brand: &str, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/comics/{brand}")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/comics/{}", seg(&guild_id), seg(&brand))))
                 .json(body),
         )
         .await
@@ -1858,7 +1868,7 @@ impl PercyClient {
     pub async fn delete_comic(&self, guild_id: u64, brand: &str) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/comics/{brand}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/comics/{}", seg(&guild_id), seg(&brand)))),
         )
         .await
     }
@@ -1867,7 +1877,7 @@ impl PercyClient {
     pub async fn push_comic(&self, guild_id: u64, brand: &str) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/comics/{brand}/push"))),
+                .post(self.url(&format!("/api/v1/guilds/{}/comics/{}/push", seg(&guild_id), seg(&brand)))),
         )
         .await
     }
@@ -1916,7 +1926,7 @@ impl PercyClient {
 
     /// Fetch one comic release by brand and slug, with its series neighbours.
     pub async fn get_comic(&self, brand: &str, slug: &str) -> Result<ComicDetail, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/comics/{brand}/{slug}"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/comics/{}/{}", seg(&brand), seg(&slug)))))
             .await
     }
 
@@ -1933,7 +1943,7 @@ impl PercyClient {
     fn get_comic_series_request(&self, slug: &str, brand: Option<&str>) -> RequestBuilder {
         let query: Vec<(&str, String)> = brand.map(|b| vec![("brand", b.to_string())]).unwrap_or_default();
         self.client
-            .get(self.url(&format!("/api/v1/comics/series/{slug}")))
+            .get(self.url(&format!("/api/v1/comics/series/{}", seg(&slug))))
             .query(&query)
     }
 
@@ -1977,7 +1987,7 @@ impl PercyClient {
     pub async fn get_temp_channels(&self, guild_id: u64) -> Result<TempChannelsResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/temp-channels"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/temp-channels", seg(&guild_id)))),
         )
         .await
     }
@@ -1986,7 +1996,7 @@ impl PercyClient {
     pub async fn create_temp_channel(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/temp-channels")))
+                .post(self.url(&format!("/api/v1/guilds/{}/temp-channels", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -2001,7 +2011,7 @@ impl PercyClient {
     ) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/temp-channels/{channel_id}")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/temp-channels/{}", seg(&guild_id), seg(&channel_id))))
                 .json(body),
         )
         .await
@@ -2011,7 +2021,7 @@ impl PercyClient {
     pub async fn delete_temp_channel(&self, guild_id: u64, channel_id: u64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/temp-channels/{channel_id}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/temp-channels/{}", seg(&guild_id), seg(&channel_id)))),
         )
         .await
     }
@@ -2022,7 +2032,7 @@ impl PercyClient {
     pub async fn get_status_feed(&self, guild_id: u64) -> Result<StatusFeedInfo, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/status-feed"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/status-feed", seg(&guild_id)))),
         )
         .await
     }
@@ -2031,7 +2041,7 @@ impl PercyClient {
     pub async fn post_status_feed(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/status-feed")))
+                .post(self.url(&format!("/api/v1/guilds/{}/status-feed", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -2041,7 +2051,7 @@ impl PercyClient {
     pub async fn delete_status_feed(&self, guild_id: u64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/status-feed"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/status-feed", seg(&guild_id)))),
         )
         .await
     }
@@ -2052,7 +2062,7 @@ impl PercyClient {
     pub async fn get_lockdowns(&self, guild_id: u64) -> Result<LockdownsResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/lockdowns"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/lockdowns", seg(&guild_id)))),
         )
         .await
     }
@@ -2061,7 +2071,7 @@ impl PercyClient {
     pub async fn lock_channels(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/lockdowns/lock")))
+                .post(self.url(&format!("/api/v1/guilds/{}/lockdowns/lock", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -2071,7 +2081,7 @@ impl PercyClient {
     pub async fn unlock_channels(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/lockdowns/unlock")))
+                .post(self.url(&format!("/api/v1/guilds/{}/lockdowns/unlock", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -2081,7 +2091,7 @@ impl PercyClient {
     pub async fn manage_moderation_ignore(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/moderation/ignore")))
+                .post(self.url(&format!("/api/v1/guilds/{}/moderation/ignore", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -2093,7 +2103,7 @@ impl PercyClient {
     pub async fn get_highlights(&self, guild_id: u64) -> Result<HighlightsResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/highlights"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/highlights", seg(&guild_id)))),
         )
         .await
     }
@@ -2102,7 +2112,7 @@ impl PercyClient {
     pub async fn delete_highlight(&self, guild_id: u64, user_id: &str) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/highlights/{user_id}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/highlights/{}", seg(&guild_id), seg(&user_id)))),
         )
         .await
     }
@@ -2113,7 +2123,7 @@ impl PercyClient {
     pub async fn get_emoji_stats(&self, guild_id: u64, limit: u32) -> Result<EmojiStatsResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/emoji-stats")))
+                .get(self.url(&format!("/api/v1/guilds/{}/emoji-stats", seg(&guild_id))))
                 .query(&[("limit", limit.to_string())]),
         )
         .await
@@ -2136,7 +2146,7 @@ impl PercyClient {
     ) -> Result<CasesResponse, PercyError> {
         let mut req = self
             .client
-            .get(self.url(&format!("/api/v1/guilds/{guild_id}/cases")))
+            .get(self.url(&format!("/api/v1/guilds/{}/cases", seg(&guild_id))))
             .query(&[("limit", limit.to_string()), ("offset", offset.to_string())]);
         if let Some(a) = action {
             req = req.query(&[("action", a)]);
@@ -2160,7 +2170,7 @@ impl PercyClient {
     pub async fn get_recent_cases(&self, guild_id: u64, since: &str) -> Result<RecentCasesResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/cases/recent")))
+                .get(self.url(&format!("/api/v1/guilds/{}/cases/recent", seg(&guild_id))))
                 .query(&[("since", since)]),
         )
         .await
@@ -2184,7 +2194,7 @@ impl PercyClient {
         }
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/cases")))
+                .post(self.url(&format!("/api/v1/guilds/{}/cases", seg(&guild_id))))
                 .json(&body),
         )
         .await
@@ -2200,7 +2210,7 @@ impl PercyClient {
     ) -> Result<CaseActionResponse, PercyError> {
         self.send_into(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/cases/{case_index}")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/cases/{}", seg(&guild_id), seg(&case_index))))
                 .json(&serde_json::json!({"reason": reason, "moderator_id": moderator_id})),
         )
         .await
@@ -2210,7 +2220,7 @@ impl PercyClient {
     pub async fn delete_case(&self, guild_id: u64, case_index: u64, moderator_id: &str) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/cases/{case_index}")))
+                .delete(self.url(&format!("/api/v1/guilds/{}/cases/{}", seg(&guild_id), seg(&case_index))))
                 .query(&[("moderator_id", moderator_id)]),
         )
         .await
@@ -2225,7 +2235,7 @@ impl PercyClient {
     ) -> Result<serde_json::Value, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/cases/{case_index}/pardon")))
+                .post(self.url(&format!("/api/v1/guilds/{}/cases/{}/pardon", seg(&guild_id), seg(&case_index))))
                 .json(&serde_json::json!({"moderator_id": moderator_id})),
         )
         .await
@@ -2233,7 +2243,7 @@ impl PercyClient {
 
     /// Fetch the guild's warn policy (expiry + escalation thresholds).
     pub async fn get_warn_policy(&self, guild_id: u64) -> Result<WarnPolicy, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/warn-policy"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}/warn-policy", seg(&guild_id)))))
             .await
     }
 
@@ -2241,7 +2251,7 @@ impl PercyClient {
     pub async fn set_warn_expiry(&self, guild_id: u64, expiry_days: Option<u32>) -> Result<WarnPolicy, PercyError> {
         self.send_into(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/warn-policy")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/warn-policy", seg(&guild_id))))
                 .json(&serde_json::json!({"expiry_days": expiry_days})),
         )
         .await
@@ -2257,7 +2267,7 @@ impl PercyClient {
     ) -> Result<WarnPolicy, PercyError> {
         self.send_into(
             self.client
-                .put(self.url(&format!("/api/v1/guilds/{guild_id}/warn-policy/thresholds/{warn_count}")))
+                .put(self.url(&format!("/api/v1/guilds/{}/warn-policy/thresholds/{}", seg(&guild_id), seg(&warn_count))))
                 .json(&serde_json::json!({"action": action, "duration_seconds": duration_seconds})),
         )
         .await
@@ -2267,7 +2277,7 @@ impl PercyClient {
     pub async fn delete_warn_threshold(&self, guild_id: u64, warn_count: u32) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/warn-policy/thresholds/{warn_count}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/warn-policy/thresholds/{}", seg(&guild_id), seg(&warn_count)))),
         )
         .await
     }
@@ -2280,7 +2290,7 @@ impl PercyClient {
     ) -> Result<BulkActionResponse, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/members/bulk-action")))
+                .post(self.url(&format!("/api/v1/guilds/{}/members/bulk-action", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -2295,7 +2305,7 @@ impl PercyClient {
     ) -> Result<ActivityResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/members/{user_id}/activity")))
+                .get(self.url(&format!("/api/v1/guilds/{}/members/{}/activity", seg(&guild_id), seg(&user_id))))
                 .query(&[("days", days.to_string())]),
         )
         .await
@@ -2307,7 +2317,7 @@ impl PercyClient {
     pub async fn get_custom_bot(&self, guild_id: u64) -> Result<CustomBotProfile, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/custom-bot"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/custom-bot", seg(&guild_id)))),
         )
         .await
     }
@@ -2316,7 +2326,7 @@ impl PercyClient {
     pub async fn patch_custom_bot(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/custom-bot")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/custom-bot", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -2326,7 +2336,7 @@ impl PercyClient {
     pub async fn reset_custom_bot(&self, guild_id: u64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/custom-bot/reset")))
+                .post(self.url(&format!("/api/v1/guilds/{}/custom-bot/reset", seg(&guild_id))))
                 .json(&serde_json::json!({})),
         )
         .await
@@ -2336,7 +2346,7 @@ impl PercyClient {
 
     /// List a guild's shared image gallery (newest first; expired images omitted).
     pub async fn get_guild_gallery(&self, guild_id: u64) -> Result<GalleryResponse, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{guild_id}/gallery"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/guilds/{}/gallery", seg(&guild_id)))))
             .await
     }
 
@@ -2359,7 +2369,7 @@ impl PercyClient {
 
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/gallery")))
+                .post(self.url(&format!("/api/v1/guilds/{}/gallery", seg(&guild_id))))
                 .multipart(form),
         )
         .await
@@ -2369,7 +2379,7 @@ impl PercyClient {
     pub async fn delete_guild_gallery(&self, guild_id: u64, image_id: &str) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/gallery/{image_id}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/gallery/{}", seg(&guild_id), seg(&image_id)))),
         )
         .await
     }
@@ -2380,7 +2390,7 @@ impl PercyClient {
     pub async fn get_webhook_events(&self, guild_id: u64) -> Result<WebhookEventsResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/webhooks/events"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/webhooks/events", seg(&guild_id)))),
         )
         .await
     }
@@ -2389,7 +2399,7 @@ impl PercyClient {
     pub async fn get_webhooks(&self, guild_id: u64) -> Result<WebhookSubscriptionsResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/webhooks"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/webhooks", seg(&guild_id)))),
         )
         .await
     }
@@ -2403,7 +2413,7 @@ impl PercyClient {
     ) -> Result<WebhookCreateResponse, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/webhooks")))
+                .post(self.url(&format!("/api/v1/guilds/{}/webhooks", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -2413,7 +2423,7 @@ impl PercyClient {
     pub async fn patch_webhook(&self, guild_id: u64, sub_id: i64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .patch(self.url(&format!("/api/v1/guilds/{guild_id}/webhooks/{sub_id}")))
+                .patch(self.url(&format!("/api/v1/guilds/{}/webhooks/{}", seg(&guild_id), seg(&sub_id))))
                 .json(body),
         )
         .await
@@ -2423,7 +2433,7 @@ impl PercyClient {
     pub async fn delete_webhook(&self, guild_id: u64, sub_id: i64) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/webhooks/{sub_id}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/webhooks/{}", seg(&guild_id), seg(&sub_id)))),
         )
         .await
     }
@@ -2432,7 +2442,7 @@ impl PercyClient {
     pub async fn test_webhook(&self, guild_id: u64, sub_id: i64) -> Result<WebhookTestResponse, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/webhooks/{sub_id}/test"))),
+                .post(self.url(&format!("/api/v1/guilds/{}/webhooks/{}/test", seg(&guild_id), seg(&sub_id)))),
         )
         .await
     }
@@ -2446,7 +2456,7 @@ impl PercyClient {
     ) -> Result<WebhookDeliveriesResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/webhooks/{sub_id}/deliveries")))
+                .get(self.url(&format!("/api/v1/guilds/{}/webhooks/{}/deliveries", seg(&guild_id), seg(&sub_id))))
                 .query(&[("limit", limit.to_string())]),
         )
         .await
@@ -2470,7 +2480,7 @@ impl PercyClient {
         }
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/analytics/series")))
+                .get(self.url(&format!("/api/v1/guilds/{}/analytics/series", seg(&guild_id))))
                 .query(&query),
         )
         .await
@@ -2480,7 +2490,7 @@ impl PercyClient {
     pub async fn get_analytics_summary(&self, guild_id: u64, range: &str) -> Result<AnalyticsSummary, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/analytics/summary")))
+                .get(self.url(&format!("/api/v1/guilds/{}/analytics/summary", seg(&guild_id))))
                 .query(&[("range", range)]),
         )
         .await
@@ -2492,7 +2502,7 @@ impl PercyClient {
     pub async fn export_backup(&self, guild_id: u64) -> Result<serde_json::Value, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/backup/export"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/backup/export", seg(&guild_id)))),
         )
         .await
     }
@@ -2508,7 +2518,7 @@ impl PercyClient {
     ) -> Result<serde_json::Value, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/backup/import")))
+                .post(self.url(&format!("/api/v1/guilds/{}/backup/import", seg(&guild_id))))
                 .query(&[("dry_run", dry_run.to_string())])
                 .json(body),
         )
@@ -2519,7 +2529,7 @@ impl PercyClient {
     pub async fn get_templates(&self, guild_id: u64) -> Result<TemplatesResponse, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/guilds/{guild_id}/templates"))),
+                .get(self.url(&format!("/api/v1/guilds/{}/templates", seg(&guild_id)))),
         )
         .await
     }
@@ -2529,7 +2539,7 @@ impl PercyClient {
     pub async fn publish_template(&self, guild_id: u64, body: &serde_json::Value) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/templates")))
+                .post(self.url(&format!("/api/v1/guilds/{}/templates", seg(&guild_id))))
                 .json(body),
         )
         .await
@@ -2545,7 +2555,7 @@ impl PercyClient {
     ) -> Result<serde_json::Value, PercyError> {
         self.send_into(
             self.client
-                .post(self.url(&format!("/api/v1/guilds/{guild_id}/templates/{slug}/apply")))
+                .post(self.url(&format!("/api/v1/guilds/{}/templates/{}/apply", seg(&guild_id), seg(&slug))))
                 .query(&[("dry_run", dry_run.to_string())]),
         )
         .await
@@ -2555,7 +2565,7 @@ impl PercyClient {
     pub async fn delete_template(&self, guild_id: u64, slug: &str) -> Result<(), PercyError> {
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/guilds/{guild_id}/templates/{slug}"))),
+                .delete(self.url(&format!("/api/v1/guilds/{}/templates/{}", seg(&guild_id), seg(&slug)))),
         )
         .await
     }
@@ -2590,7 +2600,7 @@ impl PercyClient {
         }
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/watchlist/universes/{slug}")))
+                .get(self.url(&format!("/api/v1/watchlist/universes/{}", seg(&slug))))
                 .query(&query),
         )
         .await
@@ -2601,7 +2611,7 @@ impl PercyClient {
         let query: Vec<(&str, String)> = path.map(|p| vec![("path", p.to_string())]).unwrap_or_default();
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/watchlist/universes/{slug}/stats")))
+                .get(self.url(&format!("/api/v1/watchlist/universes/{}/stats", seg(&slug))))
                 .query(&query),
         )
         .await
@@ -2617,7 +2627,7 @@ impl PercyClient {
     ) -> Result<WatchTitleDetail, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/watchlist/titles/{universe}/{slug}")))
+                .get(self.url(&format!("/api/v1/watchlist/titles/{}/{}", seg(&universe), seg(&slug))))
                 .query(&[("region", region), ("sort", sort)]),
         )
         .await
@@ -2625,7 +2635,7 @@ impl PercyClient {
 
     /// One person and their whole filmography. An unknown slug is a 404, not an empty page.
     pub async fn get_watch_person(&self, slug: &str) -> Result<WatchPersonPage, PercyError> {
-        self.send_into(self.client.get(self.url(&format!("/api/v1/watchlist/people/{slug}"))))
+        self.send_into(self.client.get(self.url(&format!("/api/v1/watchlist/people/{}", seg(&slug)))))
             .await
     }
 
@@ -2648,7 +2658,7 @@ impl PercyClient {
         let query: Vec<(&str, String)> = universe.map(|u| vec![("universe", u.to_string())]).unwrap_or_default();
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/watchlist/users/{discord_id}/progress")))
+                .get(self.url(&format!("/api/v1/watchlist/users/{}/progress", seg(&discord_id))))
                 .query(&query),
         )
         .await
@@ -2666,7 +2676,7 @@ impl PercyClient {
     ) -> Result<WatchProgressResponse, PercyError> {
         self.send_into(
             self.client
-                .put(self.url(&format!("/api/v1/watchlist/users/{discord_id}/progress")))
+                .put(self.url(&format!("/api/v1/watchlist/users/{}/progress", seg(&discord_id))))
                 .json(body),
         )
         .await
@@ -2677,7 +2687,7 @@ impl PercyClient {
         let query: Vec<(&str, String)> = universe.map(|u| vec![("universe", u.to_string())]).unwrap_or_default();
         self.send_unit(
             self.client
-                .delete(self.url(&format!("/api/v1/watchlist/users/{discord_id}/progress")))
+                .delete(self.url(&format!("/api/v1/watchlist/users/{}/progress", seg(&discord_id))))
                 .query(&query),
         )
         .await
@@ -2687,7 +2697,7 @@ impl PercyClient {
     pub async fn get_watch_prefs(&self, discord_id: u64) -> Result<WatchPrefs, PercyError> {
         self.send_into(
             self.client
-                .get(self.url(&format!("/api/v1/watchlist/users/{discord_id}/prefs"))),
+                .get(self.url(&format!("/api/v1/watchlist/users/{}/prefs", seg(&discord_id)))),
         )
         .await
     }
@@ -2696,7 +2706,7 @@ impl PercyClient {
     pub async fn patch_watch_prefs(&self, discord_id: u64, body: &serde_json::Value) -> Result<WatchPrefs, PercyError> {
         self.send_into(
             self.client
-                .patch(self.url(&format!("/api/v1/watchlist/users/{discord_id}/prefs")))
+                .patch(self.url(&format!("/api/v1/watchlist/users/{}/prefs", seg(&discord_id))))
                 .json(body),
         )
         .await
@@ -2711,7 +2721,7 @@ impl PercyClient {
     fn list_subscriptions_request(&self, discord_id: &str, media: Option<&str>) -> RequestBuilder {
         let query: Vec<(&str, &str)> = media.map(|m| vec![("media", m)]).unwrap_or_default();
         self.client
-            .get(self.url(&format!("/api/v1/releases/users/{discord_id}/subscriptions")))
+            .get(self.url(&format!("/api/v1/releases/users/{}/subscriptions", seg(&discord_id))))
             .query(&query)
     }
 
@@ -2737,7 +2747,7 @@ impl PercyClient {
     ) -> Result<Subscription, PercyError> {
         self.send_into(
             self.client
-                .put(self.url(&format!("/api/v1/releases/users/{discord_id}/subscriptions")))
+                .put(self.url(&format!("/api/v1/releases/users/{}/subscriptions", seg(&discord_id))))
                 .json(body),
         )
         .await
@@ -2755,7 +2765,7 @@ impl PercyClient {
     ) -> Result<Subscription, PercyError> {
         self.send_into(
             self.client
-                .patch(self.url(&format!("/api/v1/releases/users/{discord_id}/subscriptions")))
+                .patch(self.url(&format!("/api/v1/releases/users/{}/subscriptions", seg(&discord_id))))
                 .json(body),
         )
         .await
@@ -2769,7 +2779,7 @@ impl PercyClient {
         subject_value: &str,
     ) -> RequestBuilder {
         self.client
-            .delete(self.url(&format!("/api/v1/releases/users/{discord_id}/subscriptions")))
+            .delete(self.url(&format!("/api/v1/releases/users/{}/subscriptions", seg(&discord_id))))
             .query(&[
                 ("media", media),
                 ("subject_type", subject_type),
@@ -2865,7 +2875,7 @@ impl PercyClient {
     fn release_progress_request(&self, discord_id: &str, media: Option<&str>) -> RequestBuilder {
         let query: Vec<(&str, &str)> = media.map(|m| vec![("media", m)]).unwrap_or_default();
         self.client
-            .get(self.url(&format!("/api/v1/releases/users/{discord_id}/progress")))
+            .get(self.url(&format!("/api/v1/releases/users/{}/progress", seg(&discord_id))))
             .query(&query)
     }
 
@@ -2894,7 +2904,7 @@ impl PercyClient {
     ) -> Result<ProgressResponse, PercyError> {
         self.send_into(
             self.client
-                .put(self.url(&format!("/api/v1/releases/users/{discord_id}/progress")))
+                .put(self.url(&format!("/api/v1/releases/users/{}/progress", seg(&discord_id))))
                 .json(&serde_json::json!({ "entries": entries })),
         )
         .await
@@ -2902,7 +2912,7 @@ impl PercyClient {
 
     fn delete_release_progress_request(&self, discord_id: &str, media: &str, release_key: &str) -> RequestBuilder {
         self.client
-            .delete(self.url(&format!("/api/v1/releases/users/{discord_id}/progress")))
+            .delete(self.url(&format!("/api/v1/releases/users/{}/progress", seg(&discord_id))))
             // Both travel, always: a release key is only unique *within* a medium, and
             // Percy 400s a key without one rather than treating it as a wildcard.
             .query(&[("media", media), ("release_key", release_key)])
@@ -3423,5 +3433,18 @@ mod tests {
         assert!(pairs.contains(&("kind".to_string(), "characters".to_string())));
         assert!(pairs.contains(&("brand".to_string(), "marvel".to_string())));
         assert!(pairs.contains(&("limit".to_string(), "25".to_string())));
+    }
+}
+
+#[cfg(test)]
+mod seg_tests {
+    use super::seg;
+
+    #[test]
+    fn encodes_one_segment() {
+        assert_eq!(seg(&"../../guilds/9/x?a#b%"), "%2E%2E%2F%2E%2E%2Fguilds%2F9%2Fx%3Fa%23b%25");
+        assert_eq!(seg(&"a\\b"), "a%5Cb");
+        assert_eq!(seg(&123456789012345678u64), "123456789012345678");
+        assert_eq!(seg(&"ok-name_1~"), "ok-name_1~");
     }
 }
