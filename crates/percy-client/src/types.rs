@@ -1124,6 +1124,9 @@ pub struct ShopItem {
     pub remove_role_id: Option<String>,
     #[serde(default)]
     pub reply_message: Option<String>,
+    /// https link shown as the item card's thumbnail in Discord (absent on older Percy builds).
+    #[serde(default)]
+    pub image_url: Option<String>,
     /// Set for Percy's own catalogue items; those are not editable or deletable from the dashboard.
     #[serde(default)]
     pub builtin_key: Option<String>,
